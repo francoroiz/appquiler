@@ -5,13 +5,13 @@ import { supabase } from '@/lib/supabase'
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts'
 import { IPC_FIJO, ymList, ipcAcumulado, fmt } from '@/lib/ipc'
 
-// Dólar blue promedio mensual (ARS por USD)
-const DOLAR: Record<string,number> = { '2024-05':1260,'2024-06':1490,'2024-07':1415,'2024-08':1370,'2024-09':1245,'2024-10':1205,'2024-11':1185,'2024-12':1200,'2025-01':1260,'2025-02':1270,'2025-03':1310,'2025-04':1290,'2025-05':1305,'2025-06':1320,'2025-07':1340,'2025-08':1365,'2025-09':1390,'2025-10':1420,'2025-11':1450,'2025-12':1490,'2026-01':1530,'2026-02':1570,'2026-03':1610,'2026-04':1615 }
+// Fallback de dólar blue si la API falla (promedio mensual ARS/USD)
+const DOLAR_FALLBACK: Record<string,number> = { '2024-05':1260,'2024-06':1490,'2024-07':1415,'2024-08':1370,'2024-09':1245,'2024-10':1205,'2024-11':1185,'2024-12':1200,'2025-01':1260,'2025-02':1270,'2025-03':1310,'2025-04':1290,'2025-05':1305,'2025-06':1320,'2025-07':1340,'2025-08':1365,'2025-09':1390,'2025-10':1420,'2025-11':1450,'2025-12':1490,'2026-01':1530,'2026-02':1570,'2026-03':1610,'2026-04':1615 }
 const ASADO: Record<string,number> = { '2024-05':7200,'2024-06':7400,'2024-07':7445,'2024-08':7500,'2024-09':7600,'2024-10':7878,'2024-11':8200,'2024-12':9500,'2025-01':10500,'2025-02':11000,'2025-03':11500,'2025-04':11800,'2025-05':12000,'2025-06':12200,'2025-07':12500,'2025-08':12800,'2025-09':13000,'2025-10':13300,'2025-11':13700,'2025-12':14200,'2026-01':14800,'2026-02':15200,'2026-03':15800,'2026-04':10500 }
 const NAFTA: Record<string,number> = { '2024-05':1100,'2024-06':1180,'2024-07':1260,'2024-08':1340,'2024-09':1380,'2024-10':1420,'2024-11':1500,'2024-12':1580,'2025-01':1650,'2025-02':1720,'2025-03':1820,'2025-04':1916,'2025-05':1850,'2025-06':1880,'2025-07':1920,'2025-08':1960,'2025-09':2000,'2025-10':2050,'2025-11':2100,'2025-12':2150,'2026-01':2180,'2026-02':2207,'2026-03':2117,'2026-04':2200 }
 const CBT: Record<string,number> = { '2024-05':595000,'2024-06':630000,'2024-07':660000,'2024-08':690000,'2024-09':720000,'2024-10':740000,'2024-11':760000,'2024-12':790000,'2025-01':815000,'2025-02':840000,'2025-03':880000,'2025-04':910000,'2025-05':930000,'2025-06':950000,'2025-07':975000,'2025-08':1000000,'2025-09':1025000,'2025-10':1055000,'2025-11':1090000,'2025-12':1125000,'2026-01':1162000,'2026-02':1196000,'2026-03':1237000,'2026-04':1270000 }
 
-const HOY = '2026-04'
+const HOY = new Date().toISOString().slice(0, 7) // dinámico: mes actual
 const mN = (ym: string) => { const ms=['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic']; const [,m]=ym.split('-'); return ms[parseInt(m)-1]+' '+ym.slice(2) }
 
 export default function EstadisticasPage() {
@@ -23,11 +23,27 @@ export default function EstadisticasPage() {
   const [ipcExtra, setIpcExtra] = useState<Record<string,number>>({})
   const [tieneIva, setTieneIva] = useState(false)
   const [blancoActualIva, setBlancoActualIva] = useState<number | null>(null)
+  const [dolarBlue, setDolarBlue] = useState<Record<string,number>>(DOLAR_FALLBACK)
+  const [dolarActual, setDolarActual] = useState<number | null>(null)
+  const [dolarUpdated, setDolarUpdated] = useState<string | null>(null)
   const [serie, setSerie] = useState<any[]>([])
   const [serieNegro, setSerieNegro] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+    // Cargar dólar blue desde API (histórico + actual)
+    fetch('/api/dolar-blue')
+      .then(r => r.json())
+      .then(data => {
+        if (data.monthly) {
+          const merged = { ...DOLAR_FALLBACK, ...data.monthly }
+          setDolarBlue(merged)
+          setDolarActual(data.current ?? null)
+          setDolarUpdated(data.updated ?? null)
+        }
+      })
+      .catch(() => {}) // usa fallback si falla
+
     supabase.auth.getSession().then(({ data }) => {
       if (!data.session) return
       const uid = data.session.user.id
@@ -66,25 +82,26 @@ export default function EstadisticasPage() {
     }
   }
 
-  function calcular(monto?: number, ini?: string, ipcEx?: Record<string,number>, negro?: number) {
+  function calcular(monto?: number, ini?: string, ipcEx?: Record<string,number>, negro?: number, dolarData?: Record<string,number>) {
     const m = monto ?? (parseFloat(montoInicial) || 0)
     const mN2 = negro ?? (parseFloat(montoInicialNegro) || 0)
     const i = ini ?? inicio
-    const ex = (ipcEx ?? ipcExtra)
+    const ex = ipcEx ?? ipcExtra
+    const d = dolarData ?? dolarBlue
     if (!m) return
     const meses = ymList(i, HOY)
     const data = meses.map(ym => {
       const acum = ipcAcumulado(i, ym, ex)
       const montoAct = m * (1 + acum)
-      const dolar = DOLAR[ym] || 1390
+      const dolar = d[ym] || 1615
       return {
         mes: mN(ym), ym,
         monto: Math.round(montoAct),
         montoFijo: Math.round(m),
         usd: Math.round(montoAct / dolar),
-        kg: parseFloat((montoAct / (ASADO[ym] || 10000)).toFixed(1)),
-        lts: Math.round(montoAct / (NAFTA[ym] || 2000)),
-        cb: parseFloat((montoAct / (CBT[ym] || 1000000)).toFixed(2)),
+        kg: parseFloat((montoAct / (ASADO[ym] || 15000)).toFixed(1)),
+        lts: Math.round(montoAct / (NAFTA[ym] || 2200)),
+        cb: parseFloat((montoAct / (CBT[ym] || 1270000)).toFixed(2)),
         ipcAcum: parseFloat((acum * 100).toFixed(1))
       }
     })
@@ -94,7 +111,7 @@ export default function EstadisticasPage() {
       const dataN = meses.map(ym => {
         const acum = ipcAcumulado(i, ym, ex)
         const montoAct = mN2 * (1 + acum)
-        const dolar = DOLAR[ym] || 1390
+        const dolar = d[ym] || 1615
         return { mes: mN(ym), ym, monto: Math.round(montoAct), montoFijo: Math.round(mN2), usd: Math.round(montoAct / dolar), ipcAcum: parseFloat((acum * 100).toFixed(1)) }
       })
       setSerieNegro(dataN)
@@ -108,9 +125,18 @@ export default function EstadisticasPage() {
 
   return (
     <div>
-      <div className="page-header">
-        <h1>📉 Estadísticas de rendimiento</h1>
-        <p>Evolución real del alquiler: inflación, poder adquisitivo y rendimiento en USD</p>
+      <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+        <div>
+          <h1>📉 Estadísticas de rendimiento</h1>
+          <p>Evolución real del alquiler: inflación, poder adquisitivo y rendimiento en USD</p>
+        </div>
+        {dolarActual && (
+          <div style={{ background: '#f0fdf4', border: '1px solid #86efac', borderRadius: 10, padding: '8px 14px', textAlign: 'right', fontSize: 12 }}>
+            <div style={{ color: '#6b7280', marginBottom: 2 }}>💵 Dólar Blue hoy</div>
+            <div style={{ fontWeight: 700, fontSize: 18, color: '#16a34a' }}>${dolarActual.toLocaleString('es-AR')}</div>
+            {dolarUpdated && <div style={{ color: '#9ca3af', fontSize: 10 }}>{new Date(dolarUpdated).toLocaleDateString('es-AR')}</div>}
+          </div>
+        )}
       </div>
 
       {/* Selector */}
@@ -133,7 +159,7 @@ export default function EstadisticasPage() {
           </div>
           <div className="form-group">
             <label>Mes de inicio</label>
-            <input type="month" value={inicio} onChange={e => setInicio(e.target.value)} min="2024-01" max="2026-04" />
+            <input type="month" value={inicio} onChange={e => setInicio(e.target.value)} min="2024-01" max={HOY} />
           </div>
           <button className="btn-primary" style={{ height: 36 }} onClick={() => calcular()}>▶ Calcular</button>
         </div>
@@ -156,8 +182,8 @@ export default function EstadisticasPage() {
         <>
           {/* KPIs */}
           {(() => {
-            const dolarInicio = DOLAR[ini.ym] || 927
-            const dolarFin = DOLAR[act.ym] || 1390
+            const dolarInicio = dolarBlue[ini.ym] || 1260
+            const dolarFin = dolarBlue[act.ym] || 1615
             const devaluacion = parseFloat(((dolarFin / dolarInicio - 1) * 100).toFixed(1))
             const blancoActVal = blancoActualIva !== null ? blancoActualIva : act.monto
             const blancoIniSim = ini.monto
@@ -165,7 +191,7 @@ export default function EstadisticasPage() {
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, marginBottom: 16 }}>
                 {[
                   { label: 'Total blanco + IVA actual', val: fmt(blancoActVal), sub: `Inicial (IVA inc.): ${fmt(blancoIniSim)}`, delta: `▲ +${act.ipcAcum}% IPC acumulado`, dColor: '#1d4ed8' },
-                  { label: 'Equivalente en USD Blue', val: `U$S ${act.usd.toLocaleString('es-AR')}`, sub: `TC blue: $${(DOLAR[act.ym]||1615).toLocaleString('es-AR')} · Inicio U$S ${ini.usd.toLocaleString('es-AR')}`, delta: `${act.usd >= ini.usd ? '▲' : '▼'} ${((act.usd/ini.usd - 1)*100).toFixed(1)}% en USD`, dColor: act.usd >= ini.usd ? '#16a34a' : '#dc2626' },
+                  { label: 'Equivalente en USD Blue', val: `U$S ${act.usd.toLocaleString('es-AR')}`, sub: `TC blue: $${dolarFin.toLocaleString('es-AR')} · Inicio U$S ${ini.usd.toLocaleString('es-AR')}`, delta: `${act.usd >= ini.usd ? '▲' : '▼'} ${((act.usd/ini.usd - 1)*100).toFixed(1)}% en USD`, dColor: act.usd >= ini.usd ? '#16a34a' : '#dc2626' },
                   { label: 'Kg de asado equiv.', val: `${act.kg} kg`, sub: `Inicio: ${ini.kg} kg`, delta: `${act.kg >= ini.kg ? '▲' : '▼'} ${((act.kg/ini.kg - 1)*100).toFixed(1)}%`, dColor: act.kg >= ini.kg ? '#16a34a' : '#dc2626' },
                   { label: 'Canastas básicas', val: `${act.cb} CB`, sub: `Inicio: ${ini.cb} CB (4 pers.)`, delta: `${act.cb >= ini.cb ? '▲' : '▼'} ${((act.cb/ini.cb - 1)*100).toFixed(1)}%`, dColor: act.cb >= ini.cb ? '#16a34a' : '#dc2626' },
                   { label: 'Inflación IPC acumulada (ARS)', val: `+${act.ipcAcum}%`, sub: `${ini.mes} → ${act.mes}`, delta: 'Inflación Argentina en pesos', dColor: '#374151' },
