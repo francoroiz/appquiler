@@ -5,7 +5,8 @@ import { supabase } from '@/lib/supabase'
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts'
 import { IPC_FIJO, ymList, ipcAcumulado, fmt } from '@/lib/ipc'
 
-const DOLAR: Record<string,number> = { '2024-05':896,'2024-06':908,'2024-07':927,'2024-08':944,'2024-09':963,'2024-10':982,'2024-11':1005,'2024-12':1031,'2025-01':1053,'2025-02':1073,'2025-03':1088,'2025-04':1092,'2025-05':1100,'2025-06':1115,'2025-07':1130,'2025-08':1150,'2025-09':1170,'2025-10':1190,'2025-11':1220,'2025-12':1270,'2026-01':1320,'2026-02':1360,'2026-03':1390,'2026-04':1390 }
+// Dólar blue promedio mensual (ARS por USD)
+const DOLAR: Record<string,number> = { '2024-05':1260,'2024-06':1490,'2024-07':1415,'2024-08':1370,'2024-09':1245,'2024-10':1205,'2024-11':1185,'2024-12':1200,'2025-01':1260,'2025-02':1270,'2025-03':1310,'2025-04':1290,'2025-05':1305,'2025-06':1320,'2025-07':1340,'2025-08':1365,'2025-09':1390,'2025-10':1420,'2025-11':1450,'2025-12':1490,'2026-01':1530,'2026-02':1570,'2026-03':1610,'2026-04':1615 }
 const ASADO: Record<string,number> = { '2024-05':7200,'2024-06':7400,'2024-07':7445,'2024-08':7500,'2024-09':7600,'2024-10':7878,'2024-11':8200,'2024-12':9500,'2025-01':10500,'2025-02':11000,'2025-03':11500,'2025-04':11800,'2025-05':12000,'2025-06':12200,'2025-07':12500,'2025-08':12800,'2025-09':13000,'2025-10':13300,'2025-11':13700,'2025-12':14200,'2026-01':14800,'2026-02':15200,'2026-03':15800,'2026-04':10500 }
 const NAFTA: Record<string,number> = { '2024-05':1100,'2024-06':1180,'2024-07':1260,'2024-08':1340,'2024-09':1380,'2024-10':1420,'2024-11':1500,'2024-12':1580,'2025-01':1650,'2025-02':1720,'2025-03':1820,'2025-04':1916,'2025-05':1850,'2025-06':1880,'2025-07':1920,'2025-08':1960,'2025-09':2000,'2025-10':2050,'2025-11':2100,'2025-12':2150,'2026-01':2180,'2026-02':2207,'2026-03':2117,'2026-04':2200 }
 const CBT: Record<string,number> = { '2024-05':595000,'2024-06':630000,'2024-07':660000,'2024-08':690000,'2024-09':720000,'2024-10':740000,'2024-11':760000,'2024-12':790000,'2025-01':815000,'2025-02':840000,'2025-03':880000,'2025-04':910000,'2025-05':930000,'2025-06':950000,'2025-07':975000,'2025-08':1000000,'2025-09':1025000,'2025-10':1055000,'2025-11':1090000,'2025-12':1125000,'2026-01':1162000,'2026-02':1196000,'2026-03':1237000,'2026-04':1270000 }
@@ -124,7 +125,7 @@ export default function EstadisticasPage() {
           </div>
           <div className="form-group">
             <label>Monto inicial blanco (IVA incluido)</label>
-            <MontoInput value={montoInicial} onChange={v => setMontoInicial(v)} placeholder="500.000" />
+            <MontoInput value={montoInicial} onChange={v => setMontoInicial(v)} placeholder="500.000" prefix="$" />
           </div>
           <div className="form-group">
             <label>Monto inicial negro</label>
@@ -164,7 +165,7 @@ export default function EstadisticasPage() {
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, marginBottom: 16 }}>
                 {[
                   { label: 'Total blanco + IVA actual', val: fmt(blancoActVal), sub: `Inicial (IVA inc.): ${fmt(blancoIniSim)}`, delta: `▲ +${act.ipcAcum}% IPC acumulado`, dColor: '#1d4ed8' },
-                  { label: 'Equivalente en USD', val: `U$S ${act.usd.toLocaleString('es-AR')}`, sub: `Inicio: U$S ${ini.usd.toLocaleString('es-AR')}`, delta: `${act.usd >= ini.usd ? '▲' : '▼'} ${((act.usd/ini.usd - 1)*100).toFixed(1)}% en USD`, dColor: act.usd >= ini.usd ? '#16a34a' : '#dc2626' },
+                  { label: 'Equivalente en USD Blue', val: `U$S ${act.usd.toLocaleString('es-AR')}`, sub: `TC blue: $${(DOLAR[act.ym]||1615).toLocaleString('es-AR')} · Inicio U$S ${ini.usd.toLocaleString('es-AR')}`, delta: `${act.usd >= ini.usd ? '▲' : '▼'} ${((act.usd/ini.usd - 1)*100).toFixed(1)}% en USD`, dColor: act.usd >= ini.usd ? '#16a34a' : '#dc2626' },
                   { label: 'Kg de asado equiv.', val: `${act.kg} kg`, sub: `Inicio: ${ini.kg} kg`, delta: `${act.kg >= ini.kg ? '▲' : '▼'} ${((act.kg/ini.kg - 1)*100).toFixed(1)}%`, dColor: act.kg >= ini.kg ? '#16a34a' : '#dc2626' },
                   { label: 'Canastas básicas', val: `${act.cb} CB`, sub: `Inicio: ${ini.cb} CB (4 pers.)`, delta: `${act.cb >= ini.cb ? '▲' : '▼'} ${((act.cb/ini.cb - 1)*100).toFixed(1)}%`, dColor: act.cb >= ini.cb ? '#16a34a' : '#dc2626' },
                   { label: 'Inflación IPC acumulada (ARS)', val: `+${act.ipcAcum}%`, sub: `${ini.mes} → ${act.mes}`, delta: 'Inflación Argentina en pesos', dColor: '#374151' },
@@ -237,7 +238,7 @@ export default function EstadisticasPage() {
 
             {/* USD */}
             <div className="card">
-              <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 10 }}>💵 Rendimiento en USD</div>
+              <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 10 }}>💵 Rendimiento en USD Blue</div>
               <ResponsiveContainer width="100%" height={180}>
                 <LineChart data={serie}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
