@@ -106,6 +106,30 @@ CREATE POLICY "Users upload own comprobantes" ON storage.objects FOR INSERT
 CREATE POLICY "Users read own comprobantes" ON storage.objects FOR SELECT
   USING (bucket_id = 'comprobantes' AND auth.uid()::text = (storage.foldername(name))[1]);
 
+-- 7. Pagos en blanco (con comprobantes)
+CREATE TABLE pagos_blanco (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  inquilino_id UUID REFERENCES inquilinos(id) ON DELETE CASCADE NOT NULL,
+  fecha DATE NOT NULL,
+  monto NUMERIC NOT NULL,
+  comprobante_url TEXT,
+  comprobante_nombre TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE pagos_blanco ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Users own pagos_blanco via inquilino" ON pagos_blanco FOR ALL
+  USING (inquilino_id IN (SELECT id FROM inquilinos WHERE user_id = auth.uid()));
+
+-- 8. Columnas nuevas en inquilinos
+ALTER TABLE inquilinos
+  ADD COLUMN IF NOT EXISTS cobro_blanco_socia_a BOOLEAN DEFAULT TRUE,
+  ADD COLUMN IF NOT EXISTS cobro_blanco_socia_b BOOLEAN DEFAULT TRUE,
+  ADD COLUMN IF NOT EXISTS cobro_negro_socia_a  BOOLEAN DEFAULT TRUE,
+  ADD COLUMN IF NOT EXISTS cobro_negro_socia_b  BOOLEAN DEFAULT TRUE,
+  ADD COLUMN IF NOT EXISTS blanco_inicial NUMERIC,
+  ADD COLUMN IF NOT EXISTS negro_inicial  NUMERIC;
+
 -- Función para updated_at automático
 CREATE OR REPLACE FUNCTION update_updated_at()
 RETURNS TRIGGER AS $$ BEGIN NEW.updated_at = NOW(); RETURN NEW; END; $$ LANGUAGE plpgsql;

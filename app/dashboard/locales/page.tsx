@@ -1,14 +1,30 @@
 'use client'
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
 import { fmt, calcVencimiento, mesNombre } from '@/lib/ipc'
 import InquilinoCard from '@/components/InquilinoCard'
+import MontoInput from '@/components/MontoInput'
 
 const EMPTY = {
   nombre: '', cuit: '', direccion: '', rubro: '',
   inicio: '', anos: '', vencimiento: '',
   periodo: '3', modalidad_ipc: 'esperar',
-  blanco: '', tiene_iva: false, negro: '', diasmora: '0',
+  blanco: '', blanco_inicial: '', tiene_iva: false,
+  negro: '', negro_inicial: '', diasmora: '0',
+  cobro_blanco_socia_a: true, cobro_blanco_socia_b: true,
+  cobro_negro_socia_a: true, cobro_negro_socia_b: true,
+}
+
+function useSociaNames() {
+  const [a, setA] = useState('Socia A')
+  const [b, setB] = useState('Socia B')
+  useEffect(() => {
+    setA(localStorage.getItem('socia_a_nombre') || 'Socia A')
+    setB(localStorage.getItem('socia_b_nombre') || 'Socia B')
+  }, [])
+  function saveA(v: string) { setA(v); localStorage.setItem('socia_a_nombre', v) }
+  function saveB(v: string) { setB(v); localStorage.setItem('socia_b_nombre', v) }
+  return { a, b, saveA, saveB }
 }
 
 export default function LocalesPage() {
@@ -19,12 +35,24 @@ export default function LocalesPage() {
   const [editId, setEditId] = useState<string | null>(null)
   const [form, setForm] = useState<any>(EMPTY)
   const [uid, setUid] = useState('')
-  const [pagoModal, setPagoModal] = useState<any | null>(null)
-  const [pagos, setPagos] = useState<any[]>([])
-  const [pagoForm, setPagoForm] = useState({ fecha: '', monto: '' })
   const [saving, setSaving] = useState(false)
+  const { a: nombreA, b: nombreB, saveA, saveB } = useSociaNames()
+  const [editingNames, setEditingNames] = useState(false)
+  const [tmpA, setTmpA] = useState('')
+  const [tmpB, setTmpB] = useState('')
 
-  // Calculated fields
+  // Pagos negro modal
+  const [pagoNegroModal, setPagoNegroModal] = useState<any | null>(null)
+  const [pagosNegro, setPagosNegro] = useState<any[]>([])
+  const [pagoNegroForm, setPagoNegroForm] = useState({ fecha: '', monto: '' })
+
+  // Pagos blanco modal
+  const [pagoBlancoModal, setPagoBlancoModal] = useState<any | null>(null)
+  const [pagosBlanco, setPagosBlanco] = useState<any[]>([])
+  const [pagoBlancoForm, setPagoBlancoForm] = useState({ fecha: '', monto: '' })
+  const [uploading, setUploading] = useState(false)
+  const fileRef = useRef<HTMLInputElement>(null)
+
   const blancoNum = parseFloat(form.blanco) || 0
   const ivaVal = form.tiene_iva ? blancoNum * 0.21 : 0
   const blancoTotal = blancoNum + ivaVal
@@ -40,10 +68,36 @@ export default function LocalesPage() {
 
   async function loadAll(userId: string) {
     const [inqRes, ipcRes] = await Promise.all([
-      supabase.from('inquilinos').select('*').eq('user_id', userId).eq('modulo', 'locales').order('created_at'),
+      supabase.from('inquilinos').select('*, pagos_negro(count), pagos_blanco(count), actualizaciones_ipc(count)')
+        .eq('user_id', userId).eq('modulo', 'locales').order('created_at'),
       supabase.from('registros_ipc').select('*').eq('user_id', userId),
     ])
-    setInquilinos(inqRes.data || [])
+    const inqs = (inqRes.data || []).map((i: any) => ({
+      ...i,
+      pagos_negro_count: i.pagos_negro?.[0]?.count || 0,
+      pagos_blanco_count: i.pagos_blanco?.[0]?.count || 0,
+      actualizaciones_count: i.actualizaciones_ipc?.[0]?.count || 0,
+    }))
+
+    // Fetch last blanco payment month for mora automática
+    const ids = inqs.map((i: any) => i.id)
+    let lastBlancoMap: Record<string, string> = {}
+    if (ids.length > 0) {
+      const { data: ultimosPagos } = await supabase
+        .from('pagos_blanco')
+        .select('inquilino_id, fecha')
+        .in('inquilino_id', ids)
+        .order('fecha', { ascending: false })
+      if (ultimosPagos) {
+        ultimosPagos.forEach((p: any) => {
+          if (!lastBlancoMap[p.inquilino_id]) {
+            lastBlancoMap[p.inquilino_id] = p.fecha.slice(0, 7)
+          }
+        })
+      }
+    }
+
+    setInquilinos(inqs.map((i: any) => ({ ...i, ultimo_pago_blanco_mes: lastBlancoMap[i.id] || null })))
     const map: Record<string, number> = {}
     ;(ipcRes.data || []).forEach((r: any) => { map[r.mes] = r.valor })
     setIpcExtra(map)
@@ -67,7 +121,7 @@ export default function LocalesPage() {
       alert('Completá los campos obligatorios (*)'); return
     }
     setSaving(true)
-    const payload = {
+    const payload: any = {
       user_id: uid, modulo: 'locales',
       nombre: form.nombre, cuit: form.cuit, direccion: form.direccion,
       rubro: form.rubro || null,
@@ -75,11 +129,19 @@ export default function LocalesPage() {
       vencimiento: form.vencimiento || null,
       periodo: parseInt(form.periodo), modalidad_ipc: form.modalidad_ipc,
       blanco: blancoNum, blanco_actual: blancoNum,
-      tiene_iva: form.tiene_iva, negro: negroNum, negro_actual: negroNum,
+      blanco_inicial: parseFloat(form.blanco_inicial) || blancoNum,
+      tiene_iva: form.tiene_iva,
+      negro: negroNum, negro_actual: negroNum,
+      negro_inicial: parseFloat(form.negro_inicial) || negroNum || null,
       diasmora: parseInt(form.diasmora) || 0,
+      cobro_blanco_socia_a: form.cobro_blanco_socia_a,
+      cobro_blanco_socia_b: form.cobro_blanco_socia_b,
+      cobro_negro_socia_a: form.cobro_negro_socia_a,
+      cobro_negro_socia_b: form.cobro_negro_socia_b,
     }
     if (editId) {
-      await supabase.from('inquilinos').update(payload).eq('id', editId)
+      const { blanco_actual, ...rest } = payload
+      await supabase.from('inquilinos').update({ ...rest, blanco: blancoNum }).eq('id', editId)
     } else {
       await supabase.from('inquilinos').insert(payload)
     }
@@ -93,8 +155,14 @@ export default function LocalesPage() {
       nombre: inq.nombre, cuit: inq.cuit, direccion: inq.direccion, rubro: inq.rubro || '',
       inicio: inq.inicio, anos: inq.anos?.toString() || '', vencimiento: inq.vencimiento || '',
       periodo: inq.periodo.toString(), modalidad_ipc: inq.modalidad_ipc,
-      blanco: inq.blanco.toString(), tiene_iva: inq.tiene_iva, negro: inq.negro?.toString() || '',
+      blanco: inq.blanco.toString(), blanco_inicial: inq.blanco_inicial?.toString() || '',
+      tiene_iva: inq.tiene_iva,
+      negro: inq.negro?.toString() || '', negro_inicial: inq.negro_inicial?.toString() || '',
       diasmora: inq.diasmora?.toString() || '0',
+      cobro_blanco_socia_a: inq.cobro_blanco_socia_a !== false,
+      cobro_blanco_socia_b: inq.cobro_blanco_socia_b !== false,
+      cobro_negro_socia_a: inq.cobro_negro_socia_a !== false,
+      cobro_negro_socia_b: inq.cobro_negro_socia_b !== false,
     })
     setEditId(inq.id); setShowForm(true)
   }
@@ -121,35 +189,101 @@ export default function LocalesPage() {
     loadAll(uid)
   }
 
-  async function abrirPagos(inq: any) {
-    setPagoModal(inq)
+  // Pagos negro
+  async function abrirPagosNegro(inq: any) {
+    setPagoNegroModal(inq)
     const { data } = await supabase.from('pagos_negro').select('*').eq('inquilino_id', inq.id).order('fecha', { ascending: false })
-    setPagos(data || [])
+    setPagosNegro(data || [])
   }
 
-  async function guardarPago() {
-    if (!pagoForm.fecha || !pagoForm.monto) { alert('Completá fecha y monto'); return }
+  async function guardarPagoNegro() {
+    if (!pagoNegroForm.fecha || !pagoNegroForm.monto) { alert('Completá fecha y monto'); return }
     await supabase.from('pagos_negro').insert({
-      inquilino_id: pagoModal.id,
-      fecha: pagoForm.fecha,
-      monto: parseFloat(pagoForm.monto),
+      inquilino_id: pagoNegroModal.id,
+      fecha: pagoNegroForm.fecha,
+      monto: parseFloat(pagoNegroForm.monto),
     })
-    setPagoForm({ fecha: '', monto: '' })
-    const { data } = await supabase.from('pagos_negro').select('*').eq('inquilino_id', pagoModal.id).order('fecha', { ascending: false })
-    setPagos(data || [])
+    setPagoNegroForm({ fecha: '', monto: '' })
+    const { data } = await supabase.from('pagos_negro').select('*').eq('inquilino_id', pagoNegroModal.id).order('fecha', { ascending: false })
+    setPagosNegro(data || [])
     loadAll(uid)
   }
 
-  async function eliminarPago(id: string) {
+  async function eliminarPagoNegro(id: string) {
     if (!confirm('¿Eliminar pago?')) return
     await supabase.from('pagos_negro').delete().eq('id', id)
-    const { data } = await supabase.from('pagos_negro').select('*').eq('inquilino_id', pagoModal.id).order('fecha', { ascending: false })
-    setPagos(data || [])
+    const { data } = await supabase.from('pagos_negro').select('*').eq('inquilino_id', pagoNegroModal.id).order('fecha', { ascending: false })
+    setPagosNegro(data || [])
+    loadAll(uid)
+  }
+
+  // Pagos blanco
+  async function abrirPagosBlanco(inq: any) {
+    setPagoBlancoModal(inq)
+    const { data } = await supabase.from('pagos_blanco').select('*').eq('inquilino_id', inq.id).order('fecha', { ascending: false })
+    setPagosBlanco(data || [])
+  }
+
+  async function guardarPagoBlanco(file?: File) {
+    if (!pagoBlancoForm.fecha || !pagoBlancoForm.monto) { alert('Completá fecha y monto'); return }
+    setUploading(true)
+    let comprobante_url = null
+    let comprobante_nombre = null
+
+    if (file) {
+      const ext = file.name.split('.').pop()
+      const path = `${uid}/blanco/${pagoBlancoModal.id}/${Date.now()}.${ext}`
+      const { data: up } = await supabase.storage.from('comprobantes').upload(path, file)
+      if (up) {
+        const { data: urlData } = supabase.storage.from('comprobantes').getPublicUrl(path)
+        comprobante_url = urlData?.publicUrl || null
+        comprobante_nombre = file.name
+      }
+    }
+
+    await supabase.from('pagos_blanco').insert({
+      inquilino_id: pagoBlancoModal.id,
+      fecha: pagoBlancoForm.fecha,
+      monto: parseFloat(pagoBlancoForm.monto),
+      comprobante_url,
+      comprobante_nombre,
+    })
+    setPagoBlancoForm({ fecha: '', monto: '' })
+    if (fileRef.current) fileRef.current.value = ''
+    const { data } = await supabase.from('pagos_blanco').select('*').eq('inquilino_id', pagoBlancoModal.id).order('fecha', { ascending: false })
+    setPagosBlanco(data || [])
+    setUploading(false)
+    loadAll(uid)
+  }
+
+  async function eliminarPagoBlanco(id: string) {
+    if (!confirm('¿Eliminar pago?')) return
+    await supabase.from('pagos_blanco').delete().eq('id', id)
+    const { data } = await supabase.from('pagos_blanco').select('*').eq('inquilino_id', pagoBlancoModal.id).order('fecha', { ascending: false })
+    setPagosBlanco(data || [])
     loadAll(uid)
   }
 
   const totalBlanco = inquilinos.reduce((s, i) => s + ((i.blanco_actual || i.blanco) * (i.tiene_iva ? 1.21 : 1)), 0)
   const totalNegro = inquilinos.reduce((s, i) => s + (i.negro_actual || i.negro || 0), 0)
+
+  // Mora blanco helper for modal
+  const hoy = new Date()
+  const diaHoy = hoy.getDate()
+  const mesActual = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, '0')}`
+
+  function blancoModalInfo() {
+    if (!pagoBlancoModal) return null
+    const ba = pagoBlancoModal.blanco_actual || pagoBlancoModal.blanco
+    const bt = ba * (pagoBlancoModal.tiene_iva ? 1.21 : 1)
+    const tienePago = pagoBlancoModal.ultimo_pago_blanco_mes >= mesActual
+    const diasMora = diaHoy > 10 && !tienePago ? diaHoy - 10 : 0
+    const montoPagado = pagosBlanco
+      .filter((p: any) => p.fecha?.slice(0, 7) === mesActual)
+      .reduce((s: number, p: any) => s + p.monto, 0)
+    const pendiente = bt - montoPagado
+    return { bt, diasMora, moraDia: bt * 0.10, montoPagado, pendiente }
+  }
 
   return (
     <div>
@@ -158,10 +292,30 @@ export default function LocalesPage() {
           <h1>🏪 Locales comerciales</h1>
           <p>{inquilinos.length} contrato{inquilinos.length !== 1 ? 's' : ''} · Total: {fmt(totalBlanco)}/mes{totalNegro > 0 ? ` + ${fmt(totalNegro)} negro` : ''}</p>
         </div>
-        <button className="btn-primary" onClick={() => { setShowForm(true); setEditId(null); setForm(EMPTY) }}>
-          + Nuevo local
-        </button>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <button className="btn-secondary" style={{ fontSize: 12 }} onClick={() => { setTmpA(nombreA); setTmpB(nombreB); setEditingNames(true) }}>
+            ⚙️ Socias
+          </button>
+          <button className="btn-primary" onClick={() => { setShowForm(true); setEditId(null); setForm(EMPTY) }}>
+            + Nuevo local
+          </button>
+        </div>
       </div>
+
+      {/* Modal nombres socias */}
+      {editingNames && (
+        <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget) setEditingNames(false) }}>
+          <div className="modal-box" style={{ maxWidth: 360 }}>
+            <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 16 }}>⚙️ Nombres de socias</div>
+            <div className="form-group"><label>Socia A</label><input value={tmpA} onChange={e => setTmpA(e.target.value)} placeholder="Socia A" /></div>
+            <div className="form-group" style={{ marginTop: 10 }}><label>Socia B</label><input value={tmpB} onChange={e => setTmpB(e.target.value)} placeholder="Socia B" /></div>
+            <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
+              <button className="btn-primary" onClick={() => { saveA(tmpA || 'Socia A'); saveB(tmpB || 'Socia B'); setEditingNames(false) }}>✓ Guardar</button>
+              <button className="btn-secondary" onClick={() => setEditingNames(false)}>Cancelar</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Formulario */}
       {showForm && (
@@ -193,17 +347,26 @@ export default function LocalesPage() {
             </div>
           </div>
 
+          {/* Monto en blanco */}
           <div style={{ borderTop: '1px solid #f3f4f6', paddingTop: 12, marginBottom: 12 }}>
             <div style={{ fontSize: 12, fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 10 }}>Monto en blanco</div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-              <div className="form-group"><label>Monto base (ARS) *</label><input type="number" value={form.blanco} onChange={e => handleFormChange('blanco', e.target.value)} placeholder="0" /></div>
+              <div className="form-group">
+                <label>Monto base actual (ARS) *</label>
+                <MontoInput value={form.blanco} onChange={v => handleFormChange('blanco', v)} placeholder="0" />
+              </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, paddingTop: 18 }}>
                 <input type="checkbox" id="iva" checked={form.tiene_iva} onChange={e => handleFormChange('tiene_iva', e.target.checked)} />
                 <label htmlFor="iva" style={{ fontSize: 13, color: '#374151', cursor: 'pointer' }}>Aplicar IVA 21%</label>
               </div>
               <div className="form-group"><label>IVA (ARS)</label><input readOnly value={ivaVal > 0 ? fmt(ivaVal) : '—'} /></div>
               <div className="form-group"><label>Total blanco + IVA</label><input readOnly value={blancoTotal > 0 ? fmt(blancoTotal) : '—'} /></div>
+              <div className="form-group">
+                <label>Monto inicial histórico (IVA incluido)</label>
+                <MontoInput value={form.blanco_inicial} onChange={v => handleFormChange('blanco_inicial', v)} placeholder="Ej: 100.000" />
+              </div>
             </div>
+
             {blancoTotal > 0 && (
               <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
                 <div style={{ background: '#dbeafe', borderRadius: 8, padding: '8px 12px', flex: 1, fontSize: 12 }}>
@@ -214,10 +377,33 @@ export default function LocalesPage() {
                 </div>
               </div>
             )}
+
+            {/* Cobra socias blanco */}
+            <div style={{ marginTop: 10, display: 'flex', gap: 20 }}>
+              <label style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+                <input type="checkbox" checked={form.cobro_blanco_socia_a} onChange={e => handleFormChange('cobro_blanco_socia_a', e.target.checked)} />
+                Cobra {nombreA}
+              </label>
+              <label style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+                <input type="checkbox" checked={form.cobro_blanco_socia_b} onChange={e => handleFormChange('cobro_blanco_socia_b', e.target.checked)} />
+                Cobra {nombreB}
+              </label>
+            </div>
+            {(form.cobro_blanco_socia_a && !form.cobro_blanco_socia_b) && (
+              <div style={{ background: '#fef3c7', borderRadius: 8, padding: '7px 12px', marginTop: 8, fontSize: 12, color: '#92400e' }}>
+                ⚠️ Factura en blanco solamente <strong>{nombreA}</strong>
+              </div>
+            )}
+            {(!form.cobro_blanco_socia_a && form.cobro_blanco_socia_b) && (
+              <div style={{ background: '#fef3c7', borderRadius: 8, padding: '7px 12px', marginTop: 8, fontSize: 12, color: '#92400e' }}>
+                ⚠️ Factura en blanco solamente <strong>{nombreB}</strong>
+              </div>
+            )}
           </div>
 
+          {/* Mora */}
           <div style={{ borderTop: '1px solid #f3f4f6', paddingTop: 12, marginBottom: 12 }}>
-            <div style={{ fontSize: 12, fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 10 }}>Mora</div>
+            <div style={{ fontSize: 12, fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 10 }}>Mora manual</div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
               <div className="form-group"><label>Días en mora</label><input type="number" value={form.diasmora} onChange={e => handleFormChange('diasmora', e.target.value)} min="0" /></div>
               <div className="form-group"><label>Mora/día (10% total blanco)</label><input readOnly value={blancoTotal > 0 ? fmt(moraDia) : '—'} /></div>
@@ -225,10 +411,35 @@ export default function LocalesPage() {
             {moraTot > 0 && <div style={{ background: '#fee2e2', borderRadius: 8, padding: '8px 12px', marginTop: 8, fontSize: 12, color: '#dc2626', fontWeight: 600 }}>Mora total: {fmt(moraTot)}</div>}
           </div>
 
+          {/* Monto en negro */}
           <div style={{ borderTop: '1px solid #f3f4f6', paddingTop: 12, marginBottom: 16 }}>
             <div style={{ fontSize: 12, fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 10 }}>Monto en negro</div>
-            <div className="form-group" style={{ maxWidth: 300 }}><label>Monto en negro (ARS)</label><input type="number" value={form.negro} onChange={e => handleFormChange('negro', e.target.value)} placeholder="0" /></div>
-            {negroNum > 0 && <div style={{ background: '#fef3c7', borderRadius: 8, padding: '8px 12px', marginTop: 8, fontSize: 12, color: '#d97706', fontWeight: 600 }}>c/socia: {fmt(negroNum / 2)}</div>}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <div className="form-group">
+                <label>Monto en negro actual (ARS)</label>
+                <MontoInput value={form.negro} onChange={v => handleFormChange('negro', v)} placeholder="0" />
+              </div>
+              <div className="form-group">
+                <label>Monto inicial histórico negro (ARS)</label>
+                <MontoInput value={form.negro_inicial} onChange={v => handleFormChange('negro_inicial', v)} placeholder="Ej: 250.000" />
+              </div>
+            </div>
+            {/* Cobra socias negro */}
+            <div style={{ marginTop: 10, display: 'flex', gap: 20 }}>
+              <label style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+                <input type="checkbox" checked={form.cobro_negro_socia_a} onChange={e => handleFormChange('cobro_negro_socia_a', e.target.checked)} />
+                Cobra {nombreA} (negro)
+              </label>
+              <label style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+                <input type="checkbox" checked={form.cobro_negro_socia_b} onChange={e => handleFormChange('cobro_negro_socia_b', e.target.checked)} />
+                Cobra {nombreB} (negro)
+              </label>
+            </div>
+            {negroNum > 0 && (
+              <div style={{ background: '#fef3c7', borderRadius: 8, padding: '8px 12px', marginTop: 8, fontSize: 12, color: '#d97706', fontWeight: 600 }}>
+                c/socia: {fmt(negroNum / 2)}
+              </div>
+            )}
           </div>
 
           <div style={{ display: 'flex', gap: 8 }}>
@@ -250,9 +461,11 @@ export default function LocalesPage() {
           inquilinos.map(inq => (
             <InquilinoCard
               key={inq.id} inq={inq} ipcExtra={ipcExtra} modulo="locales"
+              nombreSociaA={nombreA} nombreSociaB={nombreB}
               onEditar={() => editar(inq)}
               onEliminar={() => eliminar(inq.id)}
-              onPagos={() => abrirPagos(inq)}
+              onPagos={() => abrirPagosNegro(inq)}
+              onPagosBlanco={() => abrirPagosBlanco(inq)}
               onAplicar={act => aplicarActualizacion(inq, act)}
             />
           ))
@@ -260,40 +473,120 @@ export default function LocalesPage() {
       )}
 
       {/* Modal pagos negro */}
-      {pagoModal && (
-        <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget) setPagoModal(null) }}>
+      {pagoNegroModal && (
+        <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget) setPagoNegroModal(null) }}>
           <div className="modal-box">
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-              <div style={{ fontSize: 14, fontWeight: 600 }}>💵 Pagos negro — {pagoModal.nombre}</div>
-              <button className="btn-secondary" style={{ padding: '4px 10px' }} onClick={() => setPagoModal(null)}>✕</button>
+              <div style={{ fontSize: 14, fontWeight: 600 }}>💵 Pagos negro — {pagoNegroModal.nombre}</div>
+              <button className="btn-secondary" style={{ padding: '4px 10px' }} onClick={() => setPagoNegroModal(null)}>✕</button>
             </div>
-
-            {pagos.length === 0 ? <p style={{ fontSize: 12, color: '#9ca3af', marginBottom: 12 }}>Sin pagos registrados.</p> : (
+            {pagosNegro.length === 0 ? <p style={{ fontSize: 12, color: '#9ca3af', marginBottom: 12 }}>Sin pagos registrados.</p> : (
               <div style={{ marginBottom: 16 }}>
-                {pagos.map(p => (
+                {pagosNegro.map(p => (
                   <div key={p.id} style={{ background: '#f9fafb', borderRadius: 8, padding: '8px 12px', marginBottom: 6, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <div>
                       <div style={{ fontWeight: 600, color: '#dc2626', fontSize: 13 }}>{fmt(p.monto)}</div>
                       <div style={{ fontSize: 11, color: '#6b7280' }}>{p.fecha}</div>
                       {p.comprobante_nombre && <div style={{ fontSize: 11, color: '#1d4ed8' }}>📎 {p.comprobante_nombre}</div>}
                     </div>
-                    <button className="btn-danger" style={{ fontSize: 11 }} onClick={() => eliminarPago(p.id)}>🗑</button>
+                    <button className="btn-danger" style={{ fontSize: 11 }} onClick={() => eliminarPagoNegro(p.id)}>🗑</button>
                   </div>
                 ))}
               </div>
             )}
-
             <div style={{ borderTop: '1px solid #e5e7eb', paddingTop: 12 }}>
               <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 8 }}>Registrar pago</div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
-                <div className="form-group"><label>Fecha *</label><input type="date" value={pagoForm.fecha} onChange={e => setPagoForm(p => ({ ...p, fecha: e.target.value }))} /></div>
-                <div className="form-group"><label>Monto (ARS) *</label><input type="number" value={pagoForm.monto} onChange={e => setPagoForm(p => ({ ...p, monto: e.target.value }))} placeholder="0" /></div>
+                <div className="form-group"><label>Fecha *</label><input type="date" value={pagoNegroForm.fecha} onChange={e => setPagoNegroForm(p => ({ ...p, fecha: e.target.value }))} /></div>
+                <div className="form-group"><label>Monto (ARS) *</label>
+                  <MontoInput value={pagoNegroForm.monto} onChange={v => setPagoNegroForm(p => ({ ...p, monto: v }))} />
+                </div>
               </div>
-              <button className="btn-primary" onClick={guardarPago}>✓ Registrar</button>
+              <button className="btn-primary" onClick={guardarPagoNegro}>✓ Registrar</button>
             </div>
           </div>
         </div>
       )}
+
+      {/* Modal pagos blanco */}
+      {pagoBlancoModal && (() => {
+        const info = blancoModalInfo()
+        return (
+          <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget) setPagoBlancoModal(null) }}>
+            <div className="modal-box">
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                <div style={{ fontSize: 14, fontWeight: 600 }}>🏦 Pagos blanco — {pagoBlancoModal.nombre}</div>
+                <button className="btn-secondary" style={{ padding: '4px 10px' }} onClick={() => setPagoBlancoModal(null)}>✕</button>
+              </div>
+
+              {/* Balance del mes */}
+              {info && (
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 12 }}>
+                  <div style={{ background: '#eff6ff', borderRadius: 8, padding: '8px 10px', fontSize: 11 }}>
+                    <div style={{ color: '#6b7280', marginBottom: 2 }}>Mes actual — esperado</div>
+                    <div style={{ fontWeight: 700, color: '#1d4ed8', fontSize: 13 }}>{fmt(info.bt)}</div>
+                  </div>
+                  <div style={{ background: '#f0fdf4', borderRadius: 8, padding: '8px 10px', fontSize: 11 }}>
+                    <div style={{ color: '#6b7280', marginBottom: 2 }}>Pagado este mes</div>
+                    <div style={{ fontWeight: 700, color: '#16a34a', fontSize: 13 }}>{fmt(info.montoPagado)}</div>
+                  </div>
+                  <div style={{ background: info.pendiente > 0 ? '#fff7ed' : '#f0fdf4', borderRadius: 8, padding: '8px 10px', fontSize: 11 }}>
+                    <div style={{ color: '#6b7280', marginBottom: 2 }}>Pendiente</div>
+                    <div style={{ fontWeight: 700, color: info.pendiente > 0 ? '#c2410c' : '#16a34a', fontSize: 13 }}>{fmt(Math.max(0, info.pendiente))}</div>
+                  </div>
+                </div>
+              )}
+
+              {/* Mora automática blanco */}
+              {info && info.diasMora > 0 && (
+                <div style={{ background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: 8, padding: '8px 12px', marginBottom: 12, fontSize: 12, color: '#c2410c' }}>
+                  🔴 Mora automática: <strong>{info.diasMora} días</strong> desde el 10 · {fmt(info.moraDia * info.diasMora)} ({fmt(info.moraDia)}/día)
+                </div>
+              )}
+
+              {pagosBlanco.length === 0 ? <p style={{ fontSize: 12, color: '#9ca3af', marginBottom: 12 }}>Sin pagos registrados.</p> : (
+                <div style={{ marginBottom: 16, maxHeight: 220, overflowY: 'auto' }}>
+                  {pagosBlanco.map(p => (
+                    <div key={p.id} style={{ background: '#f9fafb', borderRadius: 8, padding: '8px 12px', marginBottom: 6, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div>
+                        <div style={{ fontWeight: 600, color: '#1d4ed8', fontSize: 13 }}>{fmt(p.monto)}</div>
+                        <div style={{ fontSize: 11, color: '#6b7280' }}>{p.fecha}</div>
+                        {p.comprobante_url && (
+                          <a href={p.comprobante_url} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: '#1d4ed8' }}>
+                            📎 {p.comprobante_nombre || 'Ver comprobante'}
+                          </a>
+                        )}
+                      </div>
+                      <button className="btn-danger" style={{ fontSize: 11 }} onClick={() => eliminarPagoBlanco(p.id)}>🗑</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div style={{ borderTop: '1px solid #e5e7eb', paddingTop: 12 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 8 }}>Registrar pago blanco</div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
+                  <div className="form-group"><label>Fecha *</label><input type="date" value={pagoBlancoForm.fecha} onChange={e => setPagoBlancoForm(p => ({ ...p, fecha: e.target.value }))} /></div>
+                  <div className="form-group"><label>Monto (ARS) *</label>
+                    <MontoInput value={pagoBlancoForm.monto} onChange={v => setPagoBlancoForm(p => ({ ...p, monto: v }))} />
+                  </div>
+                </div>
+                <div className="form-group" style={{ marginBottom: 8 }}>
+                  <label>Comprobante de transferencia (imagen)</label>
+                  <input ref={fileRef} type="file" accept="image/*,application/pdf" style={{ fontSize: 12 }} />
+                </div>
+                <button
+                  className="btn-primary"
+                  disabled={uploading}
+                  onClick={() => guardarPagoBlanco(fileRef.current?.files?.[0])}
+                >
+                  {uploading ? 'Subiendo...' : '✓ Registrar'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
     </div>
   )
 }

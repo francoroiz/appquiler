@@ -16,9 +16,11 @@ export default function EstadisticasPage() {
   const [inquilinos, setInquilinos] = useState<any[]>([])
   const [selIdx, setSelIdx] = useState<string>('__todos__')
   const [montoInicial, setMontoInicial] = useState('500000')
+  const [montoInicialNegro, setMontoInicialNegro] = useState('')
   const [inicio, setInicio] = useState('2024-05')
   const [ipcExtra, setIpcExtra] = useState<Record<string,number>>({})
   const [serie, setSerie] = useState<any[]>([])
+  const [serieNegro, setSerieNegro] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -44,18 +46,21 @@ export default function EstadisticasPage() {
     if (val !== '__todos__') {
       const inq = inquilinos[parseInt(val)]
       if (inq) {
-        setMontoInicial(inq.blanco.toString())
-        setInicio(inq.inicio || '2024-05')
+        // Prefer blanco_inicial (historical) over blanco_actual
+        const bi = inq.blanco_inicial || inq.blanco
+        setMontoInicial(bi.toString())
+        setMontoInicialNegro((inq.negro_inicial || inq.negro || '').toString())
+        setInicio(inq.inicio ? inq.inicio.slice(0, 7) : '2024-05')
       }
     }
   }
 
-  function calcular(monto?: number, ini?: string, ipcEx?: Record<string,number>) {
+  function calcular(monto?: number, ini?: string, ipcEx?: Record<string,number>, negro?: number) {
     const m = monto ?? (parseFloat(montoInicial) || 0)
+    const mN2 = negro ?? (parseFloat(montoInicialNegro) || 0)
     const i = ini ?? inicio
     const ex = (ipcEx ?? ipcExtra)
     if (!m) return
-    const db = { ...IPC_FIJO, ...ex }
     const meses = ymList(i, HOY)
     const data = meses.map(ym => {
       const acum = ipcAcumulado(i, ym, ex)
@@ -73,6 +78,18 @@ export default function EstadisticasPage() {
       }
     })
     setSerie(data)
+
+    if (mN2 > 0) {
+      const dataN = meses.map(ym => {
+        const acum = ipcAcumulado(i, ym, ex)
+        const montoAct = mN2 * (1 + acum)
+        const dolar = DOLAR[ym] || 1390
+        return { mes: mN(ym), ym, monto: Math.round(montoAct), montoFijo: Math.round(mN2), usd: Math.round(montoAct / dolar), ipcAcum: parseFloat((acum * 100).toFixed(1)) }
+      })
+      setSerieNegro(dataN)
+    } else {
+      setSerieNegro([])
+    }
   }
 
   const ini = serie[0]
@@ -87,7 +104,7 @@ export default function EstadisticasPage() {
 
       {/* Selector */}
       <div className="card" style={{ marginBottom: 16 }}>
-        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr auto', gap: 12, alignItems: 'flex-end' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr auto', gap: 12, alignItems: 'flex-end' }}>
           <div className="form-group">
             <label>Inquilino / simulación libre</label>
             <select value={selIdx} onChange={e => onSelChange(e.target.value)}>
@@ -96,8 +113,12 @@ export default function EstadisticasPage() {
             </select>
           </div>
           <div className="form-group">
-            <label>Monto inicial (ARS)</label>
+            <label>Monto inicial blanco (IVA inc.)</label>
             <input type="number" value={montoInicial} onChange={e => setMontoInicial(e.target.value)} placeholder="500000" />
+          </div>
+          <div className="form-group">
+            <label>Monto inicial negro</label>
+            <input type="number" value={montoInicialNegro} onChange={e => setMontoInicialNegro(e.target.value)} placeholder="0 (opcional)" />
           </div>
           <div className="form-group">
             <label>Mes de inicio</label>
@@ -105,6 +126,18 @@ export default function EstadisticasPage() {
           </div>
           <button className="btn-primary" style={{ height: 36 }} onClick={() => calcular()}>▶ Calcular</button>
         </div>
+        {selIdx !== '__todos__' && inquilinos[parseInt(selIdx)] && (() => {
+          const inq = inquilinos[parseInt(selIdx)]
+          const bi = inq.blanco_inicial || inq.blanco
+          const ni = inq.negro_inicial || inq.negro || 0
+          return (
+            <div style={{ marginTop: 10, fontSize: 12, color: '#6b7280', display: 'flex', gap: 16 }}>
+              <span>📋 Monto inicial blanco cargado: <strong style={{ color: '#1d4ed8' }}>${Math.round(bi).toLocaleString('es-AR')}</strong></span>
+              {ni > 0 && <span>📋 Monto inicial negro: <strong style={{ color: '#dc2626' }}>${Math.round(ni).toLocaleString('es-AR')}</strong></span>}
+              {!inq.blanco_inicial && <span style={{ color: '#f59e0b' }}>⚠️ Sin monto inicial histórico — se usa el base actual. Editá el contrato para cargarlo.</span>}
+            </div>
+          )
+        })()}
       </div>
 
       {serie.length > 1 && ini && act && (
@@ -112,7 +145,7 @@ export default function EstadisticasPage() {
           {/* KPIs */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, marginBottom: 16 }}>
             {[
-              { label: 'Monto actualizado (IPC)', val: fmt(act.monto), sub: `Base: ${fmt(parseFloat(montoInicial))}`, delta: `▲ +${act.ipcAcum}% acumulado`, dColor: '#1d4ed8' },
+              { label: 'Monto blanco actualizado', val: fmt(act.monto), sub: `Inicial: ${fmt(parseFloat(montoInicial))}`, delta: `▲ +${act.ipcAcum}% acumulado`, dColor: '#1d4ed8' },
               { label: 'Equivalente en USD', val: `U$S ${act.usd.toLocaleString('es-AR')}`, sub: `Inicio: U$S ${ini.usd.toLocaleString('es-AR')}`, delta: `${act.usd >= ini.usd ? '▲' : '▼'} ${((act.usd/ini.usd - 1)*100).toFixed(1)}% en USD`, dColor: act.usd >= ini.usd ? '#16a34a' : '#dc2626' },
               { label: 'Kg de asado equiv.', val: `${act.kg} kg`, sub: `Inicio: ${ini.kg} kg`, delta: `${act.kg >= ini.kg ? '▲' : '▼'} ${((act.kg/ini.kg - 1)*100).toFixed(1)}%`, dColor: act.kg >= ini.kg ? '#16a34a' : '#dc2626' },
               { label: 'Canastas básicas', val: `${act.cb} CB`, sub: `Inicio: ${ini.cb} CB (4 pers.)`, delta: `${act.cb >= ini.cb ? '▲' : '▼'} ${((act.cb/ini.cb - 1)*100).toFixed(1)}%`, dColor: act.cb >= ini.cb ? '#16a34a' : '#dc2626' },
@@ -126,10 +159,48 @@ export default function EstadisticasPage() {
             ))}
           </div>
 
+          {/* Negro KPI + chart si hay negro */}
+          {serieNegro.length > 1 && (() => {
+            const iniN = serieNegro[0]; const actN = serieNegro[serieNegro.length - 1]
+            return (
+              <div className="card" style={{ marginBottom: 16, borderLeft: '3px solid #dc2626' }}>
+                <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 10, color: '#dc2626' }}>💰 Negro — evolución histórica</div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, marginBottom: 12 }}>
+                  <div className="kpi-card">
+                    <div className="kpi-label">Monto negro inicial</div>
+                    <div className="kpi-value" style={{ fontSize: 16, color: '#dc2626' }}>{fmt(iniN.monto)}</div>
+                    <div className="kpi-sub">{iniN.mes}</div>
+                  </div>
+                  <div className="kpi-card">
+                    <div className="kpi-label">Monto negro actualizado</div>
+                    <div className="kpi-value" style={{ fontSize: 16, color: '#dc2626' }}>{fmt(actN.monto)}</div>
+                    <div className="kpi-sub">{actN.mes}</div>
+                    <div className="kpi-delta" style={{ color: '#1d4ed8' }}>▲ +{actN.ipcAcum}% acumulado</div>
+                  </div>
+                  <div className="kpi-card">
+                    <div className="kpi-label">Variación en USD</div>
+                    <div className="kpi-value" style={{ fontSize: 16, color: actN.usd >= iniN.usd ? '#16a34a' : '#dc2626' }}>U$S {actN.usd.toLocaleString('es-AR')}</div>
+                    <div className="kpi-sub">Inicio: U$S {iniN.usd.toLocaleString('es-AR')}</div>
+                  </div>
+                </div>
+                <ResponsiveContainer width="100%" height={160}>
+                  <LineChart data={serieNegro}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
+                    <XAxis dataKey="mes" tick={{ fontSize: 9 }} />
+                    <YAxis tick={{ fontSize: 9 }} tickFormatter={v => '$'+Math.round(v/1000)+'k'} />
+                    <Tooltip formatter={(v: any) => '$'+Math.round(v).toLocaleString('es-AR')} />
+                    <Line type="monotone" dataKey="monto" stroke="#dc2626" strokeWidth={2} dot={false} name="Negro c/ IPC" />
+                    <Line type="monotone" dataKey="montoFijo" stroke="#f87171" strokeWidth={1.5} strokeDasharray="4 4" dot={false} name="Sin actualizar" />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            )
+          })()}
+
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16 }}>
             {/* Monto ARS */}
             <div className="card" style={{ gridColumn: '1/-1' }}>
-              <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 10 }}>📈 Monto ARS actualizado vs. sin actualizar</div>
+              <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 10 }}>📈 Blanco ARS actualizado vs. sin actualizar</div>
               <ResponsiveContainer width="100%" height={200}>
                 <LineChart data={serie}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />

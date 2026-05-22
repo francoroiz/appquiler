@@ -16,10 +16,16 @@ export interface Inquilino {
   modalidad_ipc: 'esperar' | 'previo'
   blanco: number
   blanco_actual: number
+  blanco_inicial?: number
   tiene_iva: boolean
   negro: number
   negro_actual: number
+  negro_inicial?: number
   diasmora: number
+  cobro_blanco_socia_a?: boolean
+  cobro_blanco_socia_b?: boolean
+  cobro_negro_socia_a?: boolean
+  cobro_negro_socia_b?: boolean
   created_at?: string
   updated_at?: string
 }
@@ -40,6 +46,16 @@ export interface InquilinoUY {
 }
 
 export interface PagoNegro {
+  id?: string
+  inquilino_id: string
+  fecha: string
+  monto: number
+  comprobante_url?: string
+  comprobante_nombre?: string
+  created_at?: string
+}
+
+export interface PagoBlanco {
   id?: string
   inquilino_id: string
   fecha: string
