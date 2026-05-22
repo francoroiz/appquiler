@@ -88,12 +88,15 @@ export default function EstadisticasPage() {
     const i = ini ?? inicio
     const ex = ipcEx ?? ipcExtra
     const d = dolarData ?? dolarBlue
+    // Último promedio mensual conocido → se usa flat para meses futuros
+    const dolarKeys = Object.keys(d).sort()
+    const lastDolar = dolarKeys.length > 0 ? d[dolarKeys[dolarKeys.length - 1]] : 1615
     if (!m) return
     const meses = ymList(i, HOY)
     const data = meses.map(ym => {
       const acum = ipcAcumulado(i, ym, ex)
       const montoAct = m * (1 + acum)
-      const dolar = d[ym] || 1615
+      const dolar = d[ym] ?? lastDolar
       return {
         mes: mN(ym), ym,
         monto: Math.round(montoAct),
@@ -111,7 +114,7 @@ export default function EstadisticasPage() {
       const dataN = meses.map(ym => {
         const acum = ipcAcumulado(i, ym, ex)
         const montoAct = mN2 * (1 + acum)
-        const dolar = d[ym] || 1615
+        const dolar = d[ym] ?? lastDolar
         return { mes: mN(ym), ym, monto: Math.round(montoAct), montoFijo: Math.round(mN2), usd: Math.round(montoAct / dolar), ipcAcum: parseFloat((acum * 100).toFixed(1)) }
       })
       setSerieNegro(dataN)
