@@ -45,13 +45,31 @@ export default function LocalesPage() {
   const [pagoNegroModal, setPagoNegroModal] = useState<any | null>(null)
   const [pagosNegro, setPagosNegro] = useState<any[]>([])
   const [pagoNegroForm, setPagoNegroForm] = useState({ fecha: '', monto: '' })
+  const [pagoCompletoNegro, setPagoCompletoNegro] = useState(false)
 
   // Pagos blanco modal
   const [pagoBlancoModal, setPagoBlancoModal] = useState<any | null>(null)
   const [pagosBlanco, setPagosBlanco] = useState<any[]>([])
   const [pagoBlancoForm, setPagoBlancoForm] = useState({ fecha: '', monto: '' })
+  const [pagoCompletoBlanco, setPagoCompletoBlanco] = useState(false)
   const [uploading, setUploading] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
+
+  // Genera URL firmada para comprobante (bucket privado)
+  async function openComprobante(path: string) {
+    const { data, error } = await supabase.storage.from('comprobantes').createSignedUrl(path, 3600)
+    if (data?.signedUrl) window.open(data.signedUrl, '_blank')
+    else alert('No se pudo abrir el comprobante: ' + (error?.message || 'error desconocido'))
+  }
+
+  function parsePaths(url: string | null): string[] {
+    if (!url) return []
+    try { const p = JSON.parse(url); return Array.isArray(p) ? p : [url] } catch { return [url] }
+  }
+  function parseNames(nombre: string | null, paths: string[]): string[] {
+    if (!nombre) return paths.map((_, i) => `Archivo ${i + 1}`)
+    try { const n = JSON.parse(nombre); return Array.isArray(n) ? n : [nombre] } catch { return [nombre] }
+  }
 
   const blancoNum = parseFloat(form.blanco) || 0
   const ivaVal = form.tiene_iva ? blancoNum * 0.21 : 0
@@ -205,12 +223,13 @@ export default function LocalesPage() {
 
   async function guardarPagoNegro() {
     if (!pagoNegroForm.fecha || !pagoNegroForm.monto) { alert('Completá fecha y monto'); return }
-    await supabase.from('pagos_negro').insert({
+    const { error } = await supabase.from('pagos_negro').insert({
       inquilino_id: pagoNegroModal.id,
       fecha: pagoNegroForm.fecha,
       monto: parseFloat(pagoNegroForm.monto),
     })
-    setPagoNegroForm({ fecha: '', monto: '' })
+    if (error) { alert('Error al registrar: ' + error.message); return }
+    setPagoNegroForm({ fecha: '', monto: '' }); setPagoCompletoNegro(false)
     const { data } = await supabase.from('pagos_negro').select('*').eq('inquilino_id', pagoNegroModal.id).order('fecha', { ascending: false })
     setPagosNegro(data || [])
     loadAll(uid)
@@ -226,36 +245,41 @@ export default function LocalesPage() {
 
   // Pagos blanco
   async function abrirPagosBlanco(inq: any) {
-    setPagoBlancoModal(inq)
+    setPagoBlancoModal(inq); setPagoCompletoBlanco(false)
     const { data } = await supabase.from('pagos_blanco').select('*').eq('inquilino_id', inq.id).order('fecha', { ascending: false })
     setPagosBlanco(data || [])
   }
 
-  async function guardarPagoBlanco(file?: File) {
+  async function guardarPagoBlanco() {
     if (!pagoBlancoForm.fecha || !pagoBlancoForm.monto) { alert('Completá fecha y monto'); return }
     setUploading(true)
-    let comprobante_url = null
-    let comprobante_nombre = null
 
-    if (file) {
+    // Subir múltiples archivos — guardar paths (no URL pública, bucket privado)
+    const files = fileRef.current?.files ? Array.from(fileRef.current.files) : []
+    const paths: string[] = []
+    const names: string[] = []
+    for (const file of files) {
       const ext = file.name.split('.').pop()
-      const path = `${uid}/blanco/${pagoBlancoModal.id}/${Date.now()}.${ext}`
-      const { data: up } = await supabase.storage.from('comprobantes').upload(path, file)
-      if (up) {
-        const { data: urlData } = supabase.storage.from('comprobantes').getPublicUrl(path)
-        comprobante_url = urlData?.publicUrl || null
-        comprobante_nombre = file.name
-      }
+      const path = `${uid}/blanco/${pagoBlancoModal.id}/${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`
+      const { error: upErr } = await supabase.storage.from('comprobantes').upload(path, file)
+      if (!upErr) { paths.push(path); names.push(file.name) }
     }
 
-    await supabase.from('pagos_blanco').insert({
+    const comprobante_url = paths.length > 0 ? JSON.stringify(paths) : null
+    const comprobante_nombre = names.length > 0 ? JSON.stringify(names) : null
+
+    const { error } = await supabase.from('pagos_blanco').insert({
       inquilino_id: pagoBlancoModal.id,
       fecha: pagoBlancoForm.fecha,
       monto: parseFloat(pagoBlancoForm.monto),
       comprobante_url,
       comprobante_nombre,
     })
-    setPagoBlancoForm({ fecha: '', monto: '' })
+    if (error) {
+      alert('Error al registrar el pago: ' + error.message + '\n\nSi es la primera vez, ejecutá el SQL de migración en Supabase.')
+      setUploading(false); return
+    }
+    setPagoBlancoForm({ fecha: '', monto: '' }); setPagoCompletoBlanco(false)
     if (fileRef.current) fileRef.current.value = ''
     const { data } = await supabase.from('pagos_blanco').select('*').eq('inquilino_id', pagoBlancoModal.id).order('fecha', { ascending: false })
     setPagosBlanco(data || [])
@@ -480,40 +504,62 @@ export default function LocalesPage() {
       )}
 
       {/* Modal pagos negro */}
-      {pagoNegroModal && (
-        <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget) setPagoNegroModal(null) }}>
-          <div className="modal-box">
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-              <div style={{ fontSize: 14, fontWeight: 600 }}>💵 Pagos negro — {pagoNegroModal.nombre}</div>
-              <button className="btn-secondary" style={{ padding: '4px 10px' }} onClick={() => setPagoNegroModal(null)}>✕</button>
-            </div>
-            {pagosNegro.length === 0 ? <p style={{ fontSize: 12, color: '#9ca3af', marginBottom: 12 }}>Sin pagos registrados.</p> : (
-              <div style={{ marginBottom: 16 }}>
-                {pagosNegro.map(p => (
-                  <div key={p.id} style={{ background: '#f9fafb', borderRadius: 8, padding: '8px 12px', marginBottom: 6, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <div>
-                      <div style={{ fontWeight: 600, color: '#dc2626', fontSize: 13 }}>{fmt(p.monto)}</div>
-                      <div style={{ fontSize: 11, color: '#6b7280' }}>{p.fecha}</div>
-                      {p.comprobante_nombre && <div style={{ fontSize: 11, color: '#1d4ed8' }}>📎 {p.comprobante_nombre}</div>}
-                    </div>
-                    <button className="btn-danger" style={{ fontSize: 11 }} onClick={() => eliminarPagoNegro(p.id)}>🗑</button>
-                  </div>
-                ))}
+      {pagoNegroModal && (() => {
+        const na = pagoNegroModal.negro_actual || pagoNegroModal.negro || 0
+        const cA = pagoNegroModal.cobro_negro_socia_a !== false
+        const cB = pagoNegroModal.cobro_negro_socia_b !== false
+        const montoPorSocia = (cA && cB) ? na / 2 : na
+        const totalAcumNegro = pagosNegro.reduce((s: number, p: any) => s + p.monto, 0)
+        return (
+          <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget) setPagoNegroModal(null) }}>
+            <div className="modal-box">
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                <div style={{ fontSize: 14, fontWeight: 600 }}>💵 Pagos negro — {pagoNegroModal.nombre}</div>
+                <button className="btn-secondary" style={{ padding: '4px 10px' }} onClick={() => setPagoNegroModal(null)}>✕</button>
               </div>
-            )}
-            <div style={{ borderTop: '1px solid #e5e7eb', paddingTop: 12 }}>
-              <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 8 }}>Registrar pago</div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
-                <div className="form-group"><label>Fecha *</label><input type="date" value={pagoNegroForm.fecha} onChange={e => setPagoNegroForm(p => ({ ...p, fecha: e.target.value }))} /></div>
-                <div className="form-group"><label>Monto (ARS) *</label>
-                  <MontoInput value={pagoNegroForm.monto} onChange={v => setPagoNegroForm(p => ({ ...p, monto: v }))} />
+              {/* Total acumulado */}
+              {pagosNegro.length > 0 && (
+                <div style={{ background: '#fef3c7', borderRadius: 8, padding: '7px 12px', marginBottom: 12, fontSize: 12, color: '#92400e', display: 'flex', justifyContent: 'space-between' }}>
+                  <span>Total acumulado registrado</span>
+                  <strong>{fmt(totalAcumNegro)}</strong>
                 </div>
+              )}
+              {pagosNegro.length === 0 ? <p style={{ fontSize: 12, color: '#9ca3af', marginBottom: 12 }}>Sin pagos registrados.</p> : (
+                <div style={{ marginBottom: 16, maxHeight: 200, overflowY: 'auto' }}>
+                  {pagosNegro.map(p => (
+                    <div key={p.id} style={{ background: '#f9fafb', borderRadius: 8, padding: '8px 12px', marginBottom: 6, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div>
+                        <div style={{ fontWeight: 600, color: '#dc2626', fontSize: 13 }}>{fmt(p.monto)}</div>
+                        <div style={{ fontSize: 11, color: '#6b7280' }}>{p.fecha}</div>
+                      </div>
+                      <button className="btn-danger" style={{ fontSize: 11 }} onClick={() => eliminarPagoNegro(p.id)}>🗑</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div style={{ borderTop: '1px solid #e5e7eb', paddingTop: 12 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 8 }}>Registrar pago</div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
+                  <div className="form-group"><label>Fecha *</label><input type="date" value={pagoNegroForm.fecha} onChange={e => setPagoNegroForm(p => ({ ...p, fecha: e.target.value }))} /></div>
+                  <div className="form-group"><label>Monto (ARS) *</label>
+                    <MontoInput value={pagoNegroForm.monto} onChange={v => { setPagoCompletoNegro(false); setPagoNegroForm(p => ({ ...p, monto: v })) }} />
+                  </div>
+                </div>
+                {montoPorSocia > 0 && (
+                  <label style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10, cursor: 'pointer', color: '#374151' }}>
+                    <input type="checkbox" checked={pagoCompletoNegro} onChange={e => {
+                      setPagoCompletoNegro(e.target.checked)
+                      if (e.target.checked) setPagoNegroForm(p => ({ ...p, monto: Math.round(montoPorSocia).toString() }))
+                    }} />
+                    Monto total a cobrar ({fmt(montoPorSocia)})
+                  </label>
+                )}
+                <button className="btn-primary" onClick={guardarPagoNegro}>✓ Registrar</button>
               </div>
-              <button className="btn-primary" onClick={guardarPagoNegro}>✓ Registrar</button>
             </div>
           </div>
-        </div>
-      )}
+        )
+      })()}
 
       {/* Modal pagos blanco */}
       {pagoBlancoModal && (() => {
@@ -528,9 +574,9 @@ export default function LocalesPage() {
 
               {/* Balance del mes */}
               {info && (
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 12 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 8, marginBottom: 12 }}>
                   <div style={{ background: '#eff6ff', borderRadius: 8, padding: '8px 10px', fontSize: 11 }}>
-                    <div style={{ color: '#6b7280', marginBottom: 2 }}>Mes actual — esperado</div>
+                    <div style={{ color: '#6b7280', marginBottom: 2 }}>Esperado este mes</div>
                     <div style={{ fontWeight: 700, color: '#1d4ed8', fontSize: 13 }}>{fmt(info.bt)}</div>
                   </div>
                   <div style={{ background: '#f0fdf4', borderRadius: 8, padding: '8px 10px', fontSize: 11 }}>
@@ -540,6 +586,10 @@ export default function LocalesPage() {
                   <div style={{ background: info.pendiente > 0 ? '#fff7ed' : '#f0fdf4', borderRadius: 8, padding: '8px 10px', fontSize: 11 }}>
                     <div style={{ color: '#6b7280', marginBottom: 2 }}>Pendiente</div>
                     <div style={{ fontWeight: 700, color: info.pendiente > 0 ? '#c2410c' : '#16a34a', fontSize: 13 }}>{fmt(Math.max(0, info.pendiente))}</div>
+                  </div>
+                  <div style={{ background: '#f5f3ff', borderRadius: 8, padding: '8px 10px', fontSize: 11 }}>
+                    <div style={{ color: '#6b7280', marginBottom: 2 }}>Total acumulado</div>
+                    <div style={{ fontWeight: 700, color: '#7c3aed', fontSize: 13 }}>{fmt(pagosBlanco.reduce((s: number, p: any) => s + p.monto, 0))}</div>
                   </div>
                 </div>
               )}
@@ -552,21 +602,26 @@ export default function LocalesPage() {
               )}
 
               {pagosBlanco.length === 0 ? <p style={{ fontSize: 12, color: '#9ca3af', marginBottom: 12 }}>Sin pagos registrados.</p> : (
-                <div style={{ marginBottom: 16, maxHeight: 220, overflowY: 'auto' }}>
-                  {pagosBlanco.map(p => (
-                    <div key={p.id} style={{ background: '#f9fafb', borderRadius: 8, padding: '8px 12px', marginBottom: 6, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <div>
-                        <div style={{ fontWeight: 600, color: '#1d4ed8', fontSize: 13 }}>{fmt(p.monto)}</div>
-                        <div style={{ fontSize: 11, color: '#6b7280' }}>{p.fecha}</div>
-                        {p.comprobante_url && (
-                          <a href={p.comprobante_url} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: '#1d4ed8' }}>
-                            📎 {p.comprobante_nombre || 'Ver comprobante'}
-                          </a>
-                        )}
+                <div style={{ marginBottom: 16, maxHeight: 200, overflowY: 'auto' }}>
+                  {pagosBlanco.map(p => {
+                    const paths = parsePaths(p.comprobante_url)
+                    const names = parseNames(p.comprobante_nombre, paths)
+                    return (
+                      <div key={p.id} style={{ background: '#f9fafb', borderRadius: 8, padding: '8px 12px', marginBottom: 6, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                        <div>
+                          <div style={{ fontWeight: 600, color: '#1d4ed8', fontSize: 13 }}>{fmt(p.monto)}</div>
+                          <div style={{ fontSize: 11, color: '#6b7280' }}>{p.fecha}</div>
+                          {paths.map((path, i) => (
+                            <button key={i} onClick={() => openComprobante(path)}
+                              style={{ fontSize: 11, color: '#1d4ed8', background: 'none', border: 'none', cursor: 'pointer', padding: 0, display: 'block' }}>
+                              📎 {names[i]}
+                            </button>
+                          ))}
+                        </div>
+                        <button className="btn-danger" style={{ fontSize: 11 }} onClick={() => eliminarPagoBlanco(p.id)}>🗑</button>
                       </div>
-                      <button className="btn-danger" style={{ fontSize: 11 }} onClick={() => eliminarPagoBlanco(p.id)}>🗑</button>
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
               )}
 
@@ -575,18 +630,23 @@ export default function LocalesPage() {
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
                   <div className="form-group"><label>Fecha *</label><input type="date" value={pagoBlancoForm.fecha} onChange={e => setPagoBlancoForm(p => ({ ...p, fecha: e.target.value }))} /></div>
                   <div className="form-group"><label>Monto (ARS) *</label>
-                    <MontoInput value={pagoBlancoForm.monto} onChange={v => setPagoBlancoForm(p => ({ ...p, monto: v }))} />
+                    <MontoInput value={pagoBlancoForm.monto} onChange={v => { setPagoCompletoBlanco(false); setPagoBlancoForm(p => ({ ...p, monto: v })) }} />
                   </div>
                 </div>
+                {info && info.pendiente > 0 && (
+                  <label style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10, cursor: 'pointer', color: '#374151' }}>
+                    <input type="checkbox" checked={pagoCompletoBlanco} onChange={e => {
+                      setPagoCompletoBlanco(e.target.checked)
+                      if (e.target.checked && info) setPagoBlancoForm(p => ({ ...p, monto: Math.round(info.pendiente).toString() }))
+                    }} />
+                    Monto total pendiente ({fmt(info.pendiente)})
+                  </label>
+                )}
                 <div className="form-group" style={{ marginBottom: 8 }}>
-                  <label>Comprobante de transferencia (imagen)</label>
-                  <input ref={fileRef} type="file" accept="image/*,application/pdf" style={{ fontSize: 12 }} />
+                  <label>Comprobantes (imágenes o PDF — podés seleccionar varios)</label>
+                  <input ref={fileRef} type="file" accept="image/*,application/pdf" multiple style={{ fontSize: 12 }} />
                 </div>
-                <button
-                  className="btn-primary"
-                  disabled={uploading}
-                  onClick={() => guardarPagoBlanco(fileRef.current?.files?.[0])}
-                >
+                <button className="btn-primary" disabled={uploading} onClick={guardarPagoBlanco}>
                   {uploading ? 'Subiendo...' : '✓ Registrar'}
                 </button>
               </div>
