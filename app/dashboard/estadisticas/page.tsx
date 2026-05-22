@@ -19,6 +19,7 @@ export default function EstadisticasPage() {
   const [montoInicialNegro, setMontoInicialNegro] = useState('')
   const [inicio, setInicio] = useState('2024-05')
   const [ipcExtra, setIpcExtra] = useState<Record<string,number>>({})
+  const [tieneIva, setTieneIva] = useState(false)
   const [serie, setSerie] = useState<any[]>([])
   const [serieNegro, setSerieNegro] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
@@ -46,30 +47,34 @@ export default function EstadisticasPage() {
     if (val !== '__todos__') {
       const inq = inquilinos[parseInt(val)]
       if (inq) {
-        // Prefer blanco_inicial (historical) over blanco_actual
         const bi = inq.blanco_inicial || inq.blanco
         setMontoInicial(bi.toString())
         setMontoInicialNegro((inq.negro_inicial || inq.negro || '').toString())
         setInicio(inq.inicio ? inq.inicio.slice(0, 7) : '2024-05')
+        setTieneIva(!!inq.tiene_iva)
       }
+    } else {
+      setTieneIva(false)
     }
   }
 
-  function calcular(monto?: number, ini?: string, ipcEx?: Record<string,number>, negro?: number) {
+  function calcular(monto?: number, ini?: string, ipcEx?: Record<string,number>, negro?: number, ivaFlag?: boolean) {
     const m = monto ?? (parseFloat(montoInicial) || 0)
     const mN2 = negro ?? (parseFloat(montoInicialNegro) || 0)
     const i = ini ?? inicio
     const ex = (ipcEx ?? ipcExtra)
+    const iva = ivaFlag ?? tieneIva
+    const ivaF = iva ? 1.21 : 1
     if (!m) return
     const meses = ymList(i, HOY)
     const data = meses.map(ym => {
       const acum = ipcAcumulado(i, ym, ex)
-      const montoAct = m * (1 + acum)
+      const montoAct = m * (1 + acum) * ivaF
       const dolar = DOLAR[ym] || 1390
       return {
         mes: mN(ym), ym,
         monto: Math.round(montoAct),
-        montoFijo: Math.round(m),
+        montoFijo: Math.round(m * ivaF),
         usd: Math.round(montoAct / dolar),
         kg: parseFloat((montoAct / (ASADO[ym] || 10000)).toFixed(1)),
         lts: Math.round(montoAct / (NAFTA[ym] || 2000)),
@@ -104,7 +109,7 @@ export default function EstadisticasPage() {
 
       {/* Selector */}
       <div className="card" style={{ marginBottom: 16 }}>
-        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr auto', gap: 12, alignItems: 'flex-end' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr auto 1fr 1fr auto', gap: 12, alignItems: 'flex-end' }}>
           <div className="form-group">
             <label>Inquilino / simulación libre</label>
             <select value={selIdx} onChange={e => onSelChange(e.target.value)}>
@@ -113,8 +118,12 @@ export default function EstadisticasPage() {
             </select>
           </div>
           <div className="form-group">
-            <label>Monto inicial blanco (IVA inc.)</label>
+            <label>Monto inicial blanco (base, sin IVA)</label>
             <input type="number" value={montoInicial} onChange={e => setMontoInicial(e.target.value)} placeholder="500000" />
+          </div>
+          <div className="form-group" style={{ display: 'flex', alignItems: 'center', gap: 6, paddingTop: 18 }}>
+            <input type="checkbox" id="iva-est" checked={tieneIva} onChange={e => setTieneIva(e.target.checked)} />
+            <label htmlFor="iva-est" style={{ fontSize: 13, cursor: 'pointer', whiteSpace: 'nowrap' }}>Aplica IVA 21%</label>
           </div>
           <div className="form-group">
             <label>Monto inicial negro</label>
@@ -129,10 +138,11 @@ export default function EstadisticasPage() {
         {selIdx !== '__todos__' && inquilinos[parseInt(selIdx)] && (() => {
           const inq = inquilinos[parseInt(selIdx)]
           const bi = inq.blanco_inicial || inq.blanco
+          const biIva = bi * (inq.tiene_iva ? 1.21 : 1)
           const ni = inq.negro_inicial || inq.negro || 0
           return (
             <div style={{ marginTop: 10, fontSize: 12, color: '#6b7280', display: 'flex', gap: 16 }}>
-              <span>📋 Monto inicial blanco cargado: <strong style={{ color: '#1d4ed8' }}>${Math.round(bi).toLocaleString('es-AR')}</strong></span>
+              <span>📋 Monto inicial blanco cargado: <strong style={{ color: '#1d4ed8' }}>${Math.round(bi).toLocaleString('es-AR')}</strong>{inq.tiene_iva && <span style={{ color: '#7c3aed' }}> → con IVA: ${Math.round(biIva).toLocaleString('es-AR')}</span>}</span>
               {ni > 0 && <span>📋 Monto inicial negro: <strong style={{ color: '#dc2626' }}>${Math.round(ni).toLocaleString('es-AR')}</strong></span>}
               {!inq.blanco_inicial && <span style={{ color: '#f59e0b' }}>⚠️ Sin monto inicial histórico — se usa el base actual. Editá el contrato para cargarlo.</span>}
             </div>
