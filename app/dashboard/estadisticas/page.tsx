@@ -1,5 +1,6 @@
 'use client'
 import { useEffect, useState } from 'react'
+import MontoInput from '@/components/MontoInput'
 import { supabase } from '@/lib/supabase'
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts'
 import { IPC_FIJO, ymList, ipcAcumulado, fmt } from '@/lib/ipc'
@@ -20,6 +21,7 @@ export default function EstadisticasPage() {
   const [inicio, setInicio] = useState('2024-05')
   const [ipcExtra, setIpcExtra] = useState<Record<string,number>>({})
   const [tieneIva, setTieneIva] = useState(false)
+  const [blancoActualIva, setBlancoActualIva] = useState<number | null>(null)
   const [serie, setSerie] = useState<any[]>([])
   const [serieNegro, setSerieNegro] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
@@ -47,34 +49,37 @@ export default function EstadisticasPage() {
     if (val !== '__todos__') {
       const inq = inquilinos[parseInt(val)]
       if (inq) {
-        const bi = inq.blanco_inicial || inq.blanco
+        const ivaF = inq.tiene_iva ? 1.21 : 1
+        // blanco_inicial se guarda como IVA incluido; si no está, convertimos la base
+        const bi = inq.blanco_inicial || (inq.blanco * ivaF)
         setMontoInicial(bi.toString())
         setMontoInicialNegro((inq.negro_inicial || inq.negro || '').toString())
         setInicio(inq.inicio ? inq.inicio.slice(0, 7) : '2024-05')
         setTieneIva(!!inq.tiene_iva)
+        // Valor real actual con IVA desde la DB
+        setBlancoActualIva((inq.blanco_actual || inq.blanco) * ivaF)
       }
     } else {
       setTieneIva(false)
+      setBlancoActualIva(null)
     }
   }
 
-  function calcular(monto?: number, ini?: string, ipcEx?: Record<string,number>, negro?: number, ivaFlag?: boolean) {
+  function calcular(monto?: number, ini?: string, ipcEx?: Record<string,number>, negro?: number) {
     const m = monto ?? (parseFloat(montoInicial) || 0)
     const mN2 = negro ?? (parseFloat(montoInicialNegro) || 0)
     const i = ini ?? inicio
     const ex = (ipcEx ?? ipcExtra)
-    const iva = ivaFlag ?? tieneIva
-    const ivaF = iva ? 1.21 : 1
     if (!m) return
     const meses = ymList(i, HOY)
     const data = meses.map(ym => {
       const acum = ipcAcumulado(i, ym, ex)
-      const montoAct = m * (1 + acum) * ivaF
+      const montoAct = m * (1 + acum)
       const dolar = DOLAR[ym] || 1390
       return {
         mes: mN(ym), ym,
         monto: Math.round(montoAct),
-        montoFijo: Math.round(m * ivaF),
+        montoFijo: Math.round(m),
         usd: Math.round(montoAct / dolar),
         kg: parseFloat((montoAct / (ASADO[ym] || 10000)).toFixed(1)),
         lts: Math.round(montoAct / (NAFTA[ym] || 2000)),
@@ -109,7 +114,7 @@ export default function EstadisticasPage() {
 
       {/* Selector */}
       <div className="card" style={{ marginBottom: 16 }}>
-        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr auto 1fr 1fr auto', gap: 12, alignItems: 'flex-end' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr auto', gap: 12, alignItems: 'flex-end' }}>
           <div className="form-group">
             <label>Inquilino / simulación libre</label>
             <select value={selIdx} onChange={e => onSelChange(e.target.value)}>
@@ -118,12 +123,8 @@ export default function EstadisticasPage() {
             </select>
           </div>
           <div className="form-group">
-            <label>Monto inicial blanco (base, sin IVA)</label>
-            <input type="number" value={montoInicial} onChange={e => setMontoInicial(e.target.value)} placeholder="500000" />
-          </div>
-          <div className="form-group" style={{ display: 'flex', alignItems: 'center', gap: 6, paddingTop: 18 }}>
-            <input type="checkbox" id="iva-est" checked={tieneIva} onChange={e => setTieneIva(e.target.checked)} />
-            <label htmlFor="iva-est" style={{ fontSize: 13, cursor: 'pointer', whiteSpace: 'nowrap' }}>Aplica IVA 21%</label>
+            <label>Monto inicial blanco (IVA incluido)</label>
+            <MontoInput value={montoInicial} onChange={v => setMontoInicial(v)} placeholder="500.000" />
           </div>
           <div className="form-group">
             <label>Monto inicial negro</label>
@@ -137,14 +138,14 @@ export default function EstadisticasPage() {
         </div>
         {selIdx !== '__todos__' && inquilinos[parseInt(selIdx)] && (() => {
           const inq = inquilinos[parseInt(selIdx)]
-          const bi = inq.blanco_inicial || inq.blanco
-          const biIva = bi * (inq.tiene_iva ? 1.21 : 1)
+          const ivaF = inq.tiene_iva ? 1.21 : 1
+          const bi = inq.blanco_inicial || (inq.blanco * ivaF)
           const ni = inq.negro_inicial || inq.negro || 0
           return (
             <div style={{ marginTop: 10, fontSize: 12, color: '#6b7280', display: 'flex', gap: 16 }}>
-              <span>📋 Monto inicial blanco cargado: <strong style={{ color: '#1d4ed8' }}>${Math.round(bi).toLocaleString('es-AR')}</strong>{inq.tiene_iva && <span style={{ color: '#7c3aed' }}> → con IVA: ${Math.round(biIva).toLocaleString('es-AR')}</span>}</span>
+              <span>📋 Monto inicial blanco (IVA inc.): <strong style={{ color: '#1d4ed8' }}>${Math.round(bi).toLocaleString('es-AR')}</strong></span>
               {ni > 0 && <span>📋 Monto inicial negro: <strong style={{ color: '#dc2626' }}>${Math.round(ni).toLocaleString('es-AR')}</strong></span>}
-              {!inq.blanco_inicial && <span style={{ color: '#f59e0b' }}>⚠️ Sin monto inicial histórico — se usa el base actual. Editá el contrato para cargarlo.</span>}
+              {!inq.blanco_inicial && <span style={{ color: '#f59e0b' }}>⚠️ Sin monto inicial histórico — editá el contrato para cargarlo.</span>}
             </div>
           )
         })()}
@@ -153,21 +154,32 @@ export default function EstadisticasPage() {
       {serie.length > 1 && ini && act && (
         <>
           {/* KPIs */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, marginBottom: 16 }}>
-            {[
-              { label: 'Monto blanco actualizado', val: fmt(act.monto), sub: `Inicial: ${fmt(parseFloat(montoInicial))}`, delta: `▲ +${act.ipcAcum}% acumulado`, dColor: '#1d4ed8' },
-              { label: 'Equivalente en USD', val: `U$S ${act.usd.toLocaleString('es-AR')}`, sub: `Inicio: U$S ${ini.usd.toLocaleString('es-AR')}`, delta: `${act.usd >= ini.usd ? '▲' : '▼'} ${((act.usd/ini.usd - 1)*100).toFixed(1)}% en USD`, dColor: act.usd >= ini.usd ? '#16a34a' : '#dc2626' },
-              { label: 'Kg de asado equiv.', val: `${act.kg} kg`, sub: `Inicio: ${ini.kg} kg`, delta: `${act.kg >= ini.kg ? '▲' : '▼'} ${((act.kg/ini.kg - 1)*100).toFixed(1)}%`, dColor: act.kg >= ini.kg ? '#16a34a' : '#dc2626' },
-              { label: 'Canastas básicas', val: `${act.cb} CB`, sub: `Inicio: ${ini.cb} CB (4 pers.)`, delta: `${act.cb >= ini.cb ? '▲' : '▼'} ${((act.cb/ini.cb - 1)*100).toFixed(1)}%`, dColor: act.cb >= ini.cb ? '#16a34a' : '#dc2626' },
-            ].map(k => (
-              <div key={k.label} className="kpi-card">
-                <div className="kpi-label">{k.label}</div>
-                <div className="kpi-value" style={{ fontSize: 18, color: '#111827' }}>{k.val}</div>
-                <div className="kpi-sub">{k.sub}</div>
-                <div className="kpi-delta" style={{ color: k.dColor }}>{k.delta}</div>
+          {(() => {
+            const dolarInicio = DOLAR[ini.ym] || 927
+            const dolarFin = DOLAR[act.ym] || 1390
+            const devaluacion = parseFloat(((dolarFin / dolarInicio - 1) * 100).toFixed(1))
+            const blancoActVal = blancoActualIva !== null ? blancoActualIva : act.monto
+            const blancoIniSim = ini.monto
+            return (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, marginBottom: 16 }}>
+                {[
+                  { label: 'Total blanco + IVA actual', val: fmt(blancoActVal), sub: `Inicial (IVA inc.): ${fmt(blancoIniSim)}`, delta: `▲ +${act.ipcAcum}% IPC acumulado`, dColor: '#1d4ed8' },
+                  { label: 'Equivalente en USD', val: `U$S ${act.usd.toLocaleString('es-AR')}`, sub: `Inicio: U$S ${ini.usd.toLocaleString('es-AR')}`, delta: `${act.usd >= ini.usd ? '▲' : '▼'} ${((act.usd/ini.usd - 1)*100).toFixed(1)}% en USD`, dColor: act.usd >= ini.usd ? '#16a34a' : '#dc2626' },
+                  { label: 'Kg de asado equiv.', val: `${act.kg} kg`, sub: `Inicio: ${ini.kg} kg`, delta: `${act.kg >= ini.kg ? '▲' : '▼'} ${((act.kg/ini.kg - 1)*100).toFixed(1)}%`, dColor: act.kg >= ini.kg ? '#16a34a' : '#dc2626' },
+                  { label: 'Canastas básicas', val: `${act.cb} CB`, sub: `Inicio: ${ini.cb} CB (4 pers.)`, delta: `${act.cb >= ini.cb ? '▲' : '▼'} ${((act.cb/ini.cb - 1)*100).toFixed(1)}%`, dColor: act.cb >= ini.cb ? '#16a34a' : '#dc2626' },
+                  { label: 'Inflación IPC acumulada (ARS)', val: `+${act.ipcAcum}%`, sub: `${ini.mes} → ${act.mes}`, delta: 'Inflación Argentina en pesos', dColor: '#374151' },
+                  { label: 'Devaluación ARS/USD', val: `+${devaluacion}%`, sub: `$${dolarInicio.toLocaleString('es-AR')} → $${dolarFin.toLocaleString('es-AR')} por U$S`, delta: `${ini.mes} → ${act.mes}`, dColor: '#dc2626' },
+                ].map(k => (
+                  <div key={k.label} className="kpi-card">
+                    <div className="kpi-label">{k.label}</div>
+                    <div className="kpi-value" style={{ fontSize: 18, color: '#111827' }}>{k.val}</div>
+                    <div className="kpi-sub">{k.sub}</div>
+                    <div className="kpi-delta" style={{ color: k.dColor }}>{k.delta}</div>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
+            )
+          })()}
 
           {/* Negro KPI + chart si hay negro */}
           {serieNegro.length > 1 && (() => {
