@@ -10,8 +10,7 @@ interface Props {
 
 function toDisplay(raw: string): string {
   if (!raw) return ''
-  const clean = raw.replace(/[^\d,]/g, '').replace(',', '.')
-  const n = parseFloat(clean)
+  const n = parseFloat(raw)
   if (isNaN(n)) return raw
   return n.toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 2 })
 }
