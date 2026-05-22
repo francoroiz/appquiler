@@ -66,29 +66,37 @@ export default function DeptosPage() {
 
   async function loadAll(userId: string) {
     const [inqRes, ipcRes] = await Promise.all([
-      supabase.from('inquilinos').select('*, pagos_negro(count), pagos_blanco(count), actualizaciones_ipc(count)')
+      supabase.from('inquilinos').select('*, pagos_negro(count), actualizaciones_ipc(count)')
         .eq('user_id', userId).eq('modulo', 'deptos').order('created_at'),
       supabase.from('registros_ipc').select('*').eq('user_id', userId),
     ])
     const inqs = (inqRes.data || []).map((i: any) => ({
       ...i,
       pagos_negro_count: i.pagos_negro?.[0]?.count || 0,
-      pagos_blanco_count: i.pagos_blanco?.[0]?.count || 0,
+      pagos_blanco_count: 0,
       actualizaciones_count: i.actualizaciones_ipc?.[0]?.count || 0,
     }))
     const ids = inqs.map((i: any) => i.id)
     let lastBlancoMap: Record<string, string> = {}
+    let blancoCountMap: Record<string, number> = {}
     if (ids.length > 0) {
-      const { data: ultimosPagos } = await supabase
-        .from('pagos_blanco').select('inquilino_id, fecha')
-        .in('inquilino_id', ids).order('fecha', { ascending: false })
-      if (ultimosPagos) {
-        ultimosPagos.forEach((p: any) => {
-          if (!lastBlancoMap[p.inquilino_id]) lastBlancoMap[p.inquilino_id] = p.fecha.slice(0, 7)
-        })
-      }
+      try {
+        const { data: ultimosPagos, error } = await supabase
+          .from('pagos_blanco').select('inquilino_id, fecha')
+          .in('inquilino_id', ids).order('fecha', { ascending: false })
+        if (!error && ultimosPagos) {
+          ultimosPagos.forEach((p: any) => {
+            blancoCountMap[p.inquilino_id] = (blancoCountMap[p.inquilino_id] || 0) + 1
+            if (!lastBlancoMap[p.inquilino_id]) lastBlancoMap[p.inquilino_id] = p.fecha.slice(0, 7)
+          })
+        }
+      } catch (_) { /* tabla no existe todavía */ }
     }
-    setInquilinos(inqs.map((i: any) => ({ ...i, ultimo_pago_blanco_mes: lastBlancoMap[i.id] || null })))
+    setInquilinos(inqs.map((i: any) => ({
+      ...i,
+      pagos_blanco_count: blancoCountMap[i.id] || 0,
+      ultimo_pago_blanco_mes: lastBlancoMap[i.id] || null,
+    })))
     const map: Record<string, number> = {}
     ;(ipcRes.data || []).forEach((r: any) => { map[r.mes] = r.valor })
     setIpcExtra(map)
