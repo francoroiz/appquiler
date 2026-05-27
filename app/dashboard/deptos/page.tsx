@@ -1,9 +1,52 @@
 'use client'
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState, useRef, useMemo } from 'react'
 import { supabase } from '@/lib/supabase'
 import { fmt, calcVencimiento, mesNombre } from '@/lib/ipc'
 import InquilinoCard from '@/components/InquilinoCard'
 import MontoInput from '@/components/MontoInput'
+
+type SortKey = 'nombre_az' | 'nombre_za' | 'venc_prox' | 'venc_lejano' | 'monto_mayor' | 'monto_menor' | 'act_prox' | 'mora_primero'
+
+function parseVenc(v: string): number {
+  if (!v || v === '—') return Infinity
+  const p = v.split('/')
+  if (p.length !== 3) return Infinity
+  return new Date(parseInt(p[2]), parseInt(p[1]) - 1, parseInt(p[0])).getTime()
+}
+
+function proxActMs(inq: any): number {
+  try {
+    const hoy = new Date()
+    const d = new Date(inq.inicio)
+    while (d <= hoy) d.setMonth(d.getMonth() + (inq.periodo || 3))
+    return d.getTime()
+  } catch { return Infinity }
+}
+
+function totalMonto(inq: any): number {
+  const ba = inq.blanco_actual || inq.blanco || 0
+  return ba * (inq.tiene_iva ? 1.21 : 1) + (inq.negro_actual || inq.negro || 0)
+}
+
+function sortInquilinos(list: any[], key: SortKey): any[] {
+  return [...list].sort((a, b) => {
+    switch (key) {
+      case 'nombre_az':    return a.nombre.localeCompare(b.nombre, 'es')
+      case 'nombre_za':    return b.nombre.localeCompare(a.nombre, 'es')
+      case 'venc_prox':    return parseVenc(a.vencimiento) - parseVenc(b.vencimiento)
+      case 'venc_lejano':  return parseVenc(b.vencimiento) - parseVenc(a.vencimiento)
+      case 'monto_mayor':  return totalMonto(b) - totalMonto(a)
+      case 'monto_menor':  return totalMonto(a) - totalMonto(b)
+      case 'act_prox':     return proxActMs(a) - proxActMs(b)
+      case 'mora_primero': {
+        const ma = (a.diasmora || 0) > 0 ? 0 : 1
+        const mb = (b.diasmora || 0) > 0 ? 0 : 1
+        return ma - mb || a.nombre.localeCompare(b.nombre, 'es')
+      }
+      default: return 0
+    }
+  })
+}
 
 const EMPTY = {
   nombre: '', cuit: '', direccion: '', piso: '',
@@ -40,6 +83,8 @@ export default function DeptosPage() {
   const [editingNames, setEditingNames] = useState(false)
   const [tmpA, setTmpA] = useState('')
   const [tmpB, setTmpB] = useState('')
+  const [sortBy, setSortBy] = useState<SortKey>('nombre_az')
+  const sortedInquilinos = useMemo(() => sortInquilinos(inquilinos, sortBy), [inquilinos, sortBy])
 
   const [pagoNegroModal, setPagoNegroModal] = useState<any | null>(null)
   const [pagosNegro, setPagosNegro] = useState<any[]>([])
@@ -301,7 +346,21 @@ export default function DeptosPage() {
           <h1>🏠 Departamentos</h1>
           <p>{inquilinos.length} contrato{inquilinos.length !== 1 ? 's' : ''} · Total: {fmt(totalBlanco)}/mes{totalNegro > 0 ? ` + ${fmt(totalNegro)} negro` : ''}</p>
         </div>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <select
+            value={sortBy}
+            onChange={e => setSortBy(e.target.value as SortKey)}
+            style={{ border: '1px solid #e5e7eb', borderRadius: 8, padding: '5px 10px', fontSize: 12, color: '#374151', background: 'white', cursor: 'pointer' }}
+          >
+            <option value="nombre_az">A → Z</option>
+            <option value="nombre_za">Z → A</option>
+            <option value="venc_prox">Vence más pronto</option>
+            <option value="venc_lejano">Vence más tarde</option>
+            <option value="monto_mayor">Monto mayor</option>
+            <option value="monto_menor">Monto menor</option>
+            <option value="act_prox">Actualización próxima</option>
+            <option value="mora_primero">En mora primero</option>
+          </select>
           <button className="btn-secondary" style={{ fontSize: 12 }} onClick={() => { setTmpA(nombreA); setTmpB(nombreB); setEditingNames(true) }}>⚙️ Socias</button>
           <button className="btn-primary" onClick={() => { setShowForm(true); setEditId(null); setForm(EMPTY) }}>+ Nuevo departamento</button>
         </div>
@@ -436,7 +495,7 @@ export default function DeptosPage() {
             <button className="btn-primary" style={{ marginTop: 12 }} onClick={() => setShowForm(true)}>+ Agregar primero</button>
           </div>
         ) : (
-          inquilinos.map(inq => (
+          sortedInquilinos.map(inq => (
             <InquilinoCard
               key={inq.id} inq={inq} ipcExtra={ipcExtra} modulo="deptos"
               nombreSociaA={nombreA} nombreSociaB={nombreB}
