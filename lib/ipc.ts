@@ -62,11 +62,16 @@ export function calcActualizacion(
   periodo: number,
   modalidad: 'esperar' | 'previo',
   blancoActual: number,
-  ipcExtra: Record<string, number> = {}
+  ipcExtra: Record<string, number> = {},
+  negroActual: number = 0
 ): TipoActualizacion {
   const db = { ...IPC_FIJO, ...ipcExtra }
   const hoy = new Date()
   const inicioDate = new Date(inicio)
+
+  // Si blanco es 0, operar sobre negro con modalidad previo (acumulado compuesto)
+  const base = blancoActual === 0 ? negroActual : blancoActual
+  const modalidadEfectiva: 'esperar' | 'previo' = blancoActual === 0 ? 'previo' : modalidad
 
   let proxFecha = new Date(inicioDate)
   while (proxFecha <= hoy) {
@@ -78,14 +83,14 @@ export function calcActualizacion(
   const proxYM = `${proxAnio}-${String(proxMes).padStart(2, '0')}`
   const diasHasta = Math.ceil((proxFecha.getTime() - hoy.getTime()) / (1000 * 60 * 60 * 24))
 
-  if (modalidad === 'esperar') {
+  if (modalidadEfectiva === 'esperar') {
     const mdf = new Date(proxFecha)
     mdf.setMonth(mdf.getMonth() - 1)
     const mdYM = `${mdf.getFullYear()}-${String(mdf.getMonth() + 1).padStart(2, '0')}`
     const ipcDisp = db[mdYM] ?? null
 
     if (ipcDisp !== null) {
-      const blancoNuevo = blancoActual * (1 + ipcDisp / 100)
+      const blancoNuevo = base * (1 + ipcDisp / 100)
       return { tipo: 'listo', ipc: ipcDisp, mesDato: mdYM, proxYM, diasHasta, blancoNuevo, msg: `IPC ${mesNombre(mdYM)}: +${ipcDisp}%` }
     }
     const pubCal = IPC_CALENDARIO[mdYM]
@@ -101,7 +106,7 @@ export function calcActualizacion(
     const todos = meses.every(x => x.val !== null)
     if (todos) {
       const comp = meses.reduce((a, x) => a * (1 + (x.val as number) / 100), 1) - 1
-      const blancoNuevo = blancoActual * (1 + comp)
+      const blancoNuevo = base * (1 + comp)
       return {
         tipo: 'previo', ipcComp: comp * 100, meses, proxYM, diasHasta, blancoNuevo,
         msg: `Acumulado compuesto (${meses.map(x => mesNombre(x.ym)).join('+')}): +${(comp * 100).toFixed(2)}%`
