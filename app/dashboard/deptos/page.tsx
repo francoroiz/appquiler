@@ -10,7 +10,7 @@ const EMPTY = {
   inicio: '', anos: '', vencimiento: '',
   periodo: '3', modalidad_ipc: 'esperar',
   blanco: '', blanco_inicial: '', tiene_iva: false,
-  negro: '', negro_inicial: '', diasmora: '0',
+  negro: '', negro_inicial: '', diasmora: '0', porcentaje_mora: '10',
   cobro_blanco_socia_a: true, cobro_blanco_socia_b: true,
   cobro_negro_socia_a: true, cobro_negro_socia_b: true,
 }
@@ -70,7 +70,8 @@ export default function DeptosPage() {
   const blancoNum = parseFloat(form.blanco) || 0
   const ivaVal = form.tiene_iva ? blancoNum * 0.21 : 0
   const blancoTotal = blancoNum + ivaVal
-  const moraDia = blancoTotal * 0.10
+  const pctMoraForm = parseFloat(form.porcentaje_mora) || 10
+  const moraDia = blancoTotal * (pctMoraForm / 100)
   const moraTot = moraDia * (parseInt(form.diasmora) || 0)
   const negroNum = parseFloat(form.negro) || 0
 
@@ -149,6 +150,7 @@ export default function DeptosPage() {
       negro: negroNum, negro_actual: negroNum,
       negro_inicial: parseFloat(form.negro_inicial) || negroNum || null,
       diasmora: parseInt(form.diasmora) || 0,
+      porcentaje_mora: pctMoraForm,
       cobro_blanco_socia_a: form.cobro_blanco_socia_a,
       cobro_blanco_socia_b: form.cobro_blanco_socia_b,
       cobro_negro_socia_a: form.cobro_negro_socia_a,
@@ -174,6 +176,7 @@ export default function DeptosPage() {
       tiene_iva: inq.tiene_iva,
       negro: inq.negro?.toString() || '', negro_inicial: inq.negro_inicial?.toString() || '',
       diasmora: inq.diasmora?.toString() || '0',
+      porcentaje_mora: (inq.porcentaje_mora ?? 10).toString(),
       cobro_blanco_socia_a: inq.cobro_blanco_socia_a !== false,
       cobro_blanco_socia_b: inq.cobro_blanco_socia_b !== false,
       cobro_negro_socia_a: inq.cobro_negro_socia_a !== false,
@@ -392,7 +395,11 @@ export default function DeptosPage() {
             <div style={{ fontSize: 12, fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 10 }}>Mora manual</div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
               <div className="form-group"><label>Días en mora</label><input type="number" value={form.diasmora} onChange={e => handleFormChange('diasmora', e.target.value)} min="0" /></div>
-              <div className="form-group"><label>Mora/día (10% total blanco)</label><input readOnly value={blancoTotal > 0 ? fmt(moraDia) : '—'} /></div>
+              <div className="form-group">
+                <label>% de mora diaria</label>
+                <input type="number" value={form.porcentaje_mora} onChange={e => handleFormChange('porcentaje_mora', e.target.value)} step="0.1" min="0" placeholder="10" />
+              </div>
+              <div className="form-group"><label>Mora/día ({pctMoraForm}% total blanco)</label><input readOnly value={blancoTotal > 0 ? fmt(moraDia) : '—'} /></div>
             </div>
             {moraTot > 0 && <div style={{ background: '#fee2e2', borderRadius: 8, padding: '8px 12px', marginTop: 8, fontSize: 12, color: '#dc2626', fontWeight: 600 }}>Mora total: {fmt(moraTot)}</div>}
           </div>

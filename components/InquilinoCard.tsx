@@ -22,7 +22,8 @@ export default function InquilinoCard({ inq, ipcExtra, onEditar, onEliminar, onP
   const bt = ba * (inq.tiene_iva ? 1.21 : 1)
   const na = inq.negro_actual || inq.negro || 0
   const soloNegro = ba === 0 && na > 0
-  const moraDia = soloNegro ? na * 0.10 : bt * 0.10
+  const pctMora = (inq.porcentaje_mora ?? 10) / 100
+  const moraDia = soloNegro ? na * pctMora : bt * pctMora
   const mora = moraDia * (inq.diasmora || 0)
   const vs = vencimientoStatus(inq.vencimiento || '')
   const act = calcActualizacion(inq.inicio, inq.periodo, inq.modalidad_ipc, ba, ipcExtra, na)
@@ -56,6 +57,7 @@ export default function InquilinoCard({ inq, ipcExtra, onEditar, onEliminar, onP
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 14, fontWeight: 600 }}>{inq.nombre}</div>
+          {inq.piso && <div style={{ fontSize: 12, fontWeight: 700, color: '#374151', marginTop: 1 }}>{inq.piso}</div>}
           <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>{inq.cuit} · {inq.direccion}</div>
         </div>
         <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', justifyContent: 'flex-end', alignItems: 'center', marginLeft: 8 }}>
@@ -156,13 +158,13 @@ export default function InquilinoCard({ inq, ipcExtra, onEditar, onEliminar, onP
 
           {mora > 0 && (
             <div className="alert-mora">
-              ⚠️ Mora acumulada: <strong>{fmt(mora)}</strong> ({inq.diasmora} día{inq.diasmora > 1 ? 's' : ''} × {fmt(moraDia)}/día)
+              ⚠️ Mora {soloNegro ? 'sobre negro' : 'acumulada'}: <strong>{fmt(mora)}</strong> ({inq.diasmora} día{inq.diasmora > 1 ? 's' : ''} × {fmt(moraDia)}/día · {inq.porcentaje_mora ?? 10}%)
             </div>
           )}
 
           {moraBlanco > 0 && mora === 0 && (
             <div style={{ background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: 8, padding: '7px 12px', marginBottom: 8, fontSize: 12, color: '#c2410c' }}>
-              🔴 Sin pago blanco — mora automática: <strong>{fmt(moraBlanco)}</strong> ({diasMoraBlanco} días desde el 10)
+              🔴 {soloNegro ? 'Mora sobre negro' : 'Sin pago blanco — mora automática'}: <strong>{fmt(moraBlanco)}</strong> ({diasMoraBlanco} días desde el 10 · {inq.porcentaje_mora ?? 10}%)
             </div>
           )}
 
