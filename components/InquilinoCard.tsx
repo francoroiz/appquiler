@@ -10,12 +10,14 @@ interface Props {
   onPagos: () => void
   onPagosBlanco: () => void
   onAplicar: (act: any) => void
+  /** marca el período como ya aplicado a mano, sin cambiar montos */
+  onMarcarManual?: (act: any) => void
   modulo: 'locales' | 'deptos'
   nombreSociaA: string
   nombreSociaB: string
 }
 
-export default function InquilinoCard({ inq, ipcExtra, onEditar, onEliminar, onPagos, onPagosBlanco, onAplicar, modulo, nombreSociaA, nombreSociaB }: Props) {
+export default function InquilinoCard({ inq, ipcExtra, onEditar, onEliminar, onPagos, onPagosBlanco, onAplicar, onMarcarManual, modulo, nombreSociaA, nombreSociaB }: Props) {
   const [open, setOpen] = useState(false)
 
   const ba = inq.blanco_actual || inq.blanco
@@ -176,6 +178,14 @@ export default function InquilinoCard({ inq, ipcExtra, onEditar, onEliminar, onP
               <button className="btn-primary" style={{ marginTop: 8, fontSize: 12, padding: '5px 12px' }} onClick={() => onAplicar(act)}>
                 ✓ Aplicar actualización
               </button>
+              {onMarcarManual && act.vencida && (
+                <button
+                  style={{ marginTop: 8, marginLeft: 8, fontSize: 12, padding: '5px 12px', background: 'white', border: '1px solid #d1d5db', borderRadius: 8, color: '#374151', cursor: 'pointer' }}
+                  onClick={() => onMarcarManual(act)}
+                >
+                  Ya la apliqué a mano
+                </button>
+              )}
             </div>
           )}
           {act.tipo === 'previo' && (
@@ -186,6 +196,14 @@ export default function InquilinoCard({ inq, ipcExtra, onEditar, onEliminar, onP
               <button className="btn-primary" style={{ marginTop: 8, fontSize: 12, padding: '5px 12px' }} onClick={() => onAplicar(act)}>
                 ✓ Aplicar actualización
               </button>
+              {onMarcarManual && act.vencida && (
+                <button
+                  style={{ marginTop: 8, marginLeft: 8, fontSize: 12, padding: '5px 12px', background: 'white', border: '1px solid #d1d5db', borderRadius: 8, color: '#374151', cursor: 'pointer' }}
+                  onClick={() => onMarcarManual(act)}
+                >
+                  Ya la apliqué a mano
+                </button>
+              )}
             </div>
           )}
           {act.tipo === 'esperar' && (

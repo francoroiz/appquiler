@@ -269,6 +269,23 @@ export default function LocalesPage() {
     loadAll(uid)
   }
 
+  // La actualización de este período ya se hizo a mano: se registra como aplicada sin cambiar ningún monto
+  async function marcarAplicadaManual(inq: any, act: any) {
+    const periodoLabel = mesNombre(act.proxYM)
+    if (!confirm(`¿Marcar la actualización de ${periodoLabel} de ${inq.nombre} como ya aplicada a mano?\n\nNo se modifica ningún monto; la próxima actualización se calculará sola.`)) return
+    const { data: yaAplicada } = await supabase
+      .from('actualizaciones_ipc').select('id').eq('inquilino_id', inq.id).eq('periodo', periodoLabel).limit(1)
+    if (yaAplicada && yaAplicada.length > 0) { loadAll(uid); return }
+    const { error } = await supabase.from('actualizaciones_ipc').insert({
+      inquilino_id: inq.id, periodo: periodoLabel, ipc: 0,
+      blanco_nuevo: inq.blanco_actual || inq.blanco || 0,
+      negro_nuevo: inq.negro_actual || inq.negro || 0,
+      fecha: new Date().toLocaleDateString('es-AR')
+    })
+    if (error) { alert('Error al registrar: ' + error.message); return }
+    loadAll(uid)
+  }
+
   async function aplicarActualizacion(inq: any, act: any) {
     const pct = act.tipo === 'previo' ? act.ipcComp : act.ipc
     const periodoLabel = mesNombre(act.proxYM)
@@ -595,6 +612,7 @@ export default function LocalesPage() {
               onPagos={() => abrirPagosNegro(inq)}
               onPagosBlanco={() => abrirPagosBlanco(inq)}
               onAplicar={act => aplicarActualizacion(inq, act)}
+              onMarcarManual={act => marcarAplicadaManual(inq, act)}
             />
           ))
         )

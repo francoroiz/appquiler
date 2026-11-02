@@ -134,7 +134,7 @@ export default function IPCPage() {
                       <td style={{ padding: '6px 8px', borderBottom: '1px solid #f3f4f6' }}>{h.fecha}</td>
                       <td style={{ padding: '6px 8px', borderBottom: '1px solid #f3f4f6', fontWeight: 500 }}>{h.inquilinos?.nombre || '—'}</td>
                       <td style={{ padding: '6px 8px', borderBottom: '1px solid #f3f4f6' }}>{h.periodo}</td>
-                      <td style={{ padding: '6px 8px', borderBottom: '1px solid #f3f4f6', color: '#16a34a', fontWeight: 600 }}>+{h.ipc}%</td>
+                      <td style={{ padding: '6px 8px', borderBottom: '1px solid #f3f4f6', color: '#16a34a', fontWeight: 600 }}>{h.ipc === 0 ? 'Manual' : `+${h.ipc}%`}</td>
                       <td style={{ padding: '6px 8px', borderBottom: '1px solid #f3f4f6', color: '#1d4ed8' }}>${Math.round(h.blanco_nuevo || h.negro_nuevo || 0).toLocaleString('es-AR')}{!h.blanco_nuevo && h.negro_nuevo ? ' (negro)' : ''}</td>
                     </tr>
                   ))}
