@@ -1,7 +1,7 @@
 'use client'
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
-import { IPC_FIJO, IPC_CALENDARIO, mesNombre, ipcDb, getIpcAutoMonthly, ymHoy, ymAdd } from '@/lib/ipc'
+import { IPC_REZAGO, IPC_FIJO, IPC_CALENDARIO, mesNombre, ipcDb, getIpcAutoMonthly, ymHoy, ymAdd } from '@/lib/ipc'
 
 // Últimos 10 meses cerrados (el mes en curso todavía no se publica)
 const MESES_MOSTRAR = Array.from({ length: 10 }, (_, i) => ymAdd(ymHoy(), -(10 - i)))
@@ -107,7 +107,7 @@ export default function IPCPage() {
             </button>
           </div>
           <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 8 }}>
-            💡 Los datos se cargan solos desde INDEC, ArgentinaDatos y BCRA (se acepta un mes solo si al menos 2 fuentes coinciden). Un dato cargado a mano tiene prioridad sobre el automático.
+            💡 Los datos se cargan solos desde INDEC, ArgentinaDatos y BCRA (se acepta un mes solo si al menos 2 fuentes coinciden). Un dato cargado a mano tiene prioridad sobre el automático. Las actualizaciones usan el IPC con {IPC_REZAGO} meses de rezago (la de noviembre toma jul + ago + sep).
           </div>
         </div>
       </div>

@@ -38,6 +38,13 @@ export function ymList(from: string, to: string): string[] {
   return list
 }
 
+/**
+ * Rezago del IPC: la actualización de un mes usa datos de N meses atrás, porque el INDEC publica el
+ * mes anterior recién a mediados del siguiente. Con 2: la actualización de noviembre usa
+ * julio + agosto + septiembre (el último mes tomado es el de 2 meses antes de la fecha).
+ */
+export const IPC_REZAGO = 2
+
 // ── IPC automático y verificado ──────────────────────────────────────────────
 // El panel (layout) lo carga desde /api/ipc-auto antes de mostrar las pantallas. Son datos
 // públicos confirmados por al menos 2 fuentes (INDEC + ArgentinaDatos/BCRA).
@@ -116,7 +123,9 @@ export function calcActualizacion(
   ipcExtra: Record<string, number> = {},
   negroActual: number = 0,
   /** períodos ya aplicados (ej. "Nov 2026"). Si se pasa, una actualización vencida y sin aplicar sigue pendiente. */
-  aplicados?: string[]
+  aplicados?: string[],
+  /** meses de rezago del último dato usado (por defecto IPC_REZAGO) */
+  rezago: number = IPC_REZAGO
 ): TipoActualizacion {
   const db = ipcDb(ipcExtra)
   const now = new Date()
@@ -154,7 +163,7 @@ export function calcActualizacion(
   const diasHasta = Math.round((proxFecha.getTime() - hoy.getTime()) / DAY)
 
   if (modalidadEfectiva === 'esperar') {
-    const mdYM = ymAdd(proxYM, -1)
+    const mdYM = ymAdd(proxYM, -rezago)
     const exact = exactAccum(ymAdd(mdYM, -1), mdYM, [mdYM], ipcExtra)
     const ipcDisp = exact !== null ? exact * 100 : (db[mdYM] ?? null)
 
@@ -170,7 +179,7 @@ export function calcActualizacion(
   } else {
     const meses: { ym: string; val: number | null }[] = []
     for (let i = periodo; i >= 1; i--) {
-      const ym = ymAdd(proxYM, -i)
+      const ym = ymAdd(proxYM, -(i + rezago - 1))
       meses.push({ ym, val: db[ym] ?? null })
     }
     const exact = exactAccum(ymAdd(meses[0].ym, -1), meses[meses.length - 1].ym, meses.map(x => x.ym), ipcExtra)
