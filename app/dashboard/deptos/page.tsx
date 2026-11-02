@@ -214,8 +214,19 @@ export default function DeptosPage() {
       cobro_negro_socia_b: form.cobro_negro_socia_b,
     }
     if (editId) {
-      const { blanco_actual, ...rest } = payload
-      await supabase.from('inquilinos').update({ ...rest, blanco: blancoNum }).eq('id', editId)
+      // "Monto base actual" y "Monto en negro actual" son los montos VIGENTES: se guardan en *_actual,
+      // que es lo que muestran las tarjetas y usa el cálculo de IPC. El monto original del contrato
+      // (blanco / negro) solo se toca si todavía no se aplicó ninguna actualización.
+      const actual = inquilinos.find((i: any) => i.id === editId)
+      const sinActualizaciones = (actual?.actualizaciones_count || 0) === 0
+      const { blanco: _b, blanco_actual: _ba, negro: _n, negro_actual: _na, ...rest } = payload
+      const { error: errEdit } = await supabase.from('inquilinos').update({
+        ...rest,
+        blanco_actual: blancoNum,
+        negro_actual: negroNum,
+        ...(sinActualizaciones ? { blanco: blancoNum, negro: negroNum } : {}),
+      }).eq('id', editId)
+      if (errEdit) { alert('Error al guardar: ' + errEdit.message); setSaving(false); return }
     } else {
       await supabase.from('inquilinos').insert(payload)
     }
@@ -229,9 +240,9 @@ export default function DeptosPage() {
       nombre: inq.nombre, cuit: inq.cuit, direccion: inq.direccion, piso: inq.piso || '',
       inicio: inq.inicio, anos: inq.anos?.toString() || '', vencimiento: inq.vencimiento || '',
       periodo: inq.periodo.toString(), modalidad_ipc: inq.modalidad_ipc,
-      blanco: inq.blanco.toString(), blanco_inicial: inq.blanco_inicial?.toString() || '',
+      blanco: (inq.blanco_actual || inq.blanco).toString(), blanco_inicial: inq.blanco_inicial?.toString() || '',
       tiene_iva: inq.tiene_iva,
-      negro: inq.negro?.toString() || '', negro_inicial: inq.negro_inicial?.toString() || '',
+      negro: (inq.negro_actual || inq.negro) ? (inq.negro_actual || inq.negro).toString() : '', negro_inicial: inq.negro_inicial?.toString() || '',
       diasmora: inq.diasmora?.toString() || '0',
       porcentaje_mora: (inq.porcentaje_mora ?? 10).toString(),
       cobro_blanco_socia_a: inq.cobro_blanco_socia_a !== false,
