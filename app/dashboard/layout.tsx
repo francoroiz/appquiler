@@ -28,7 +28,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   // IPC automático verificado (INDEC + respaldos). Si falla o tarda, las pantallas siguen con lo cargado.
   useEffect(() => {
     const ctrl = new AbortController()
-    const t = setTimeout(() => ctrl.abort(), 8000)
+    const t = setTimeout(() => ctrl.abort(), 25000)
     fetch('/api/ipc-auto', { signal: ctrl.signal })
       .then(r => (r.ok ? r.json() : null))
       .then(d => setIpcAuto(d))
