@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
+import { setIpcAuto } from '@/lib/ipc'
 
 const NAV = [
   { href: '/dashboard', label: 'Inicio', icon: '📊', exact: true },
@@ -22,6 +23,19 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const pathname = usePathname()
   const [userEmail, setUserEmail] = useState('')
   const [menuOpen, setMenuOpen] = useState(false)
+  const [ipcReady, setIpcReady] = useState(false)
+
+  // IPC automático verificado (INDEC + respaldos). Si falla o tarda, las pantallas siguen con lo cargado.
+  useEffect(() => {
+    const ctrl = new AbortController()
+    const t = setTimeout(() => ctrl.abort(), 8000)
+    fetch('/api/ipc-auto', { signal: ctrl.signal })
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => setIpcAuto(d))
+      .catch(() => {})
+      .finally(() => { clearTimeout(t); setIpcReady(true) })
+    return () => { clearTimeout(t); ctrl.abort() }
+  }, [])
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -96,7 +110,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
       {/* Main content */}
       <main className="main-wrap" style={{ flex: 1, padding: '2rem', overflowY: 'auto', maxWidth: 'calc(100vw - 220px)', paddingTop: '2rem' }}>
-        {children}
+        {ipcReady ? children : <p style={{ fontSize: 13, color: '#9ca3af' }}>Cargando…</p>}
       </main>
     </div>
   )

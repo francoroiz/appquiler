@@ -1,12 +1,10 @@
 'use client'
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
-import { IPC_FIJO, IPC_CALENDARIO, mesNombre } from '@/lib/ipc'
+import { IPC_FIJO, IPC_CALENDARIO, mesNombre, ipcDb, getIpcAutoMonthly, ymHoy, ymAdd } from '@/lib/ipc'
 
-const MESES_MOSTRAR = [
-  '2025-10','2025-11','2025-12',
-  '2026-01','2026-02','2026-03','2026-04','2026-05','2026-06','2026-07'
-]
+// Últimos 10 meses cerrados (el mes en curso todavía no se publica)
+const MESES_MOSTRAR = Array.from({ length: 10 }, (_, i) => ymAdd(ymHoy(), -(10 - i)))
 
 export default function IPCPage() {
   const [uid, setUid] = useState('')
@@ -45,7 +43,8 @@ export default function IPCPage() {
     setSaving(false)
   }
 
-  const allIPC = { ...IPC_FIJO, ...ipcExtra }
+  const allIPC = ipcDb(ipcExtra)
+  const autoIPC = getIpcAutoMonthly()
 
   return (
     <div>
@@ -74,7 +73,9 @@ export default function IPCPage() {
                 {confirmado ? (
                   <>
                     <div style={{ fontSize: 18, fontWeight: 700, color: '#16a34a' }}>+{val}%</div>
-                    <div style={{ fontSize: 9, color: '#16a34a', marginTop: 2 }}>✓ Confirmado</div>
+                    <div style={{ fontSize: 9, color: '#16a34a', marginTop: 2 }}>
+                      {ym in ipcExtra ? '✓ Cargado a mano' : ym in IPC_FIJO ? '✓ Confirmado' : ym in autoIPC ? '✓ Automático verificado' : '✓ Confirmado'}
+                    </div>
                   </>
                 ) : (
                   <>
@@ -106,7 +107,7 @@ export default function IPCPage() {
             </button>
           </div>
           <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 8 }}>
-            💡 El INDEC publica el IPC alrededor de la segunda semana de cada mes. Próxima publicación: IPC mayo 2026 el <strong>11 jun 2026</strong>.
+            💡 Los datos se cargan solos desde INDEC, ArgentinaDatos y BCRA (se acepta un mes solo si al menos 2 fuentes coinciden). Un dato cargado a mano tiene prioridad sobre el automático.
           </div>
         </div>
       </div>
@@ -134,7 +135,7 @@ export default function IPCPage() {
                       <td style={{ padding: '6px 8px', borderBottom: '1px solid #f3f4f6', fontWeight: 500 }}>{h.inquilinos?.nombre || '—'}</td>
                       <td style={{ padding: '6px 8px', borderBottom: '1px solid #f3f4f6' }}>{h.periodo}</td>
                       <td style={{ padding: '6px 8px', borderBottom: '1px solid #f3f4f6', color: '#16a34a', fontWeight: 600 }}>+{h.ipc}%</td>
-                      <td style={{ padding: '6px 8px', borderBottom: '1px solid #f3f4f6', color: '#1d4ed8' }}>${Math.round(h.blanco_nuevo).toLocaleString('es-AR')}</td>
+                      <td style={{ padding: '6px 8px', borderBottom: '1px solid #f3f4f6', color: '#1d4ed8' }}>${Math.round(h.blanco_nuevo || h.negro_nuevo || 0).toLocaleString('es-AR')}{!h.blanco_nuevo && h.negro_nuevo ? ' (negro)' : ''}</td>
                     </tr>
                   ))}
                 </tbody>

@@ -26,7 +26,7 @@ export default function InquilinoCard({ inq, ipcExtra, onEditar, onEliminar, onP
   const moraDia = soloNegro ? na * pctMora : bt * pctMora
   const mora = moraDia * (inq.diasmora || 0)
   const vs = vencimientoStatus(inq.vencimiento || '')
-  const act = calcActualizacion(inq.inicio, inq.periodo, inq.modalidad_ipc, ba, ipcExtra, na)
+  const act = calcActualizacion(inq.inicio, inq.periodo, inq.modalidad_ipc, ba, ipcExtra, na, inq.aplicados)
   const nPagosNegro = inq.pagos_negro_count || 0
   const nPagosBlanco = inq.pagos_blanco_count || 0
 
@@ -48,7 +48,7 @@ export default function InquilinoCard({ inq, ipcExtra, onEditar, onEliminar, onP
   const actLabel = (act.tipo === 'listo' || act.tipo === 'previo')
     ? '✅ Lista para actualizar'
     : act.tipo === 'esperar'
-    ? `⏳ Act. en ${act.diasHasta}d`
+    ? (act.vencida ? `⏳ Venció hace ${Math.abs(act.diasHasta)}d · esperando datos` : `⏳ Act. en ${act.diasHasta}d`)
     : null
 
   return (
@@ -171,7 +171,7 @@ export default function InquilinoCard({ inq, ipcExtra, onEditar, onEliminar, onP
           {act.tipo === 'listo' && (
             <div className="alert-listo" style={{ marginBottom: 8 }}>
               <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>✅ {soloNegro ? 'Lista para actualizar (negro)' : 'Lista para actualizar'}</div>
-              <div style={{ fontSize: 12 }}>{act.msg} · En {act.diasHasta} días</div>
+              <div style={{ fontSize: 12 }}>{act.msg} · {act.diasHasta < 0 ? `venció hace ${Math.abs(act.diasHasta)} días` : act.diasHasta === 0 ? 'vence hoy' : `en ${act.diasHasta} días`}</div>
               <div style={{ fontSize: 13, fontWeight: 600, marginTop: 4 }}>Nuevo monto: {fmt(act.blancoNuevo)}</div>
               <button className="btn-primary" style={{ marginTop: 8, fontSize: 12, padding: '5px 12px' }} onClick={() => onAplicar(act)}>
                 ✓ Aplicar actualización
@@ -181,7 +181,7 @@ export default function InquilinoCard({ inq, ipcExtra, onEditar, onEliminar, onP
           {act.tipo === 'previo' && (
             <div className="alert-previo" style={{ marginBottom: 8 }}>
               <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>🔢 {soloNegro ? 'Lista para actualizar (negro)' : 'Lista (acumulado compuesto)'}</div>
-              <div style={{ fontSize: 12 }}>{act.msg} · En {act.diasHasta} días</div>
+              <div style={{ fontSize: 12 }}>{act.msg} · {act.diasHasta < 0 ? `venció hace ${Math.abs(act.diasHasta)} días` : act.diasHasta === 0 ? 'vence hoy' : `en ${act.diasHasta} días`}</div>
               <div style={{ fontSize: 13, fontWeight: 600, marginTop: 4 }}>Nuevo monto: {fmt(act.blancoNuevo)}</div>
               <button className="btn-primary" style={{ marginTop: 8, fontSize: 12, padding: '5px 12px' }} onClick={() => onAplicar(act)}>
                 ✓ Aplicar actualización
@@ -190,7 +190,7 @@ export default function InquilinoCard({ inq, ipcExtra, onEditar, onEliminar, onP
           )}
           {act.tipo === 'esperar' && (
             <div className="alert-esperar" style={{ marginBottom: 8 }}>
-              <div style={{ fontSize: 12, fontWeight: 600 }}>⏳ Próxima actualización en {act.diasHasta} días</div>
+              <div style={{ fontSize: 12, fontWeight: 600 }}>{act.vencida ? `⏳ Actualización vencida hace ${Math.abs(act.diasHasta)} días` : `⏳ Próxima actualización en ${act.diasHasta} días`}</div>
               <div style={{ fontSize: 12, marginTop: 2 }}>{act.msg}</div>
             </div>
           )}

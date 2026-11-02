@@ -141,7 +141,18 @@ export default function DeptosPage() {
     const ids = inqs.map((i: any) => i.id)
     let lastBlancoMap: Record<string, string> = {}
     let blancoCountMap: Record<string, number> = {}
+    let aplicadosMap: Record<string, string[]> = {}
+    let aplicadosOk = false
     if (ids.length > 0) {
+      // Períodos ya aplicados: permite que una actualización vencida siga pendiente hasta aplicarla
+      try {
+        const { data: hist, error: errHist } = await supabase
+          .from('actualizaciones_ipc').select('inquilino_id, periodo').in('inquilino_id', ids)
+        if (!errHist && hist) {
+          hist.forEach((h: any) => { (aplicadosMap[h.inquilino_id] ||= []).push(h.periodo) })
+          aplicadosOk = true
+        }
+      } catch (_) { /* sin historial: se usa el cálculo básico */ }
       try {
         const { data: ultimosPagos, error } = await supabase
           .from('pagos_blanco').select('inquilino_id, fecha')
@@ -158,6 +169,7 @@ export default function DeptosPage() {
       ...i,
       pagos_blanco_count: blancoCountMap[i.id] || 0,
       ultimo_pago_blanco_mes: lastBlancoMap[i.id] || null,
+      aplicados: aplicadosOk ? (aplicadosMap[i.id] || []) : undefined,
     })))
     const map: Record<string, number> = {}
     ;(ipcRes.data || []).forEach((r: any) => { map[r.mes] = r.valor })
@@ -238,12 +250,20 @@ export default function DeptosPage() {
 
   async function aplicarActualizacion(inq: any, act: any) {
     const pct = act.tipo === 'previo' ? act.ipcComp : act.ipc
+    const periodoLabel = mesNombre(act.proxYM)
+    const { data: yaAplicada } = await supabase
+      .from('actualizaciones_ipc').select('id').eq('inquilino_id', inq.id).eq('periodo', periodoLabel).limit(1)
+    if (yaAplicada && yaAplicada.length > 0) {
+      alert(`Esta actualización (${periodoLabel}) ya fue aplicada a ${inq.nombre}. No se aplicó de nuevo.`)
+      loadAll(uid)
+      return
+    }
     const bN = act.blancoNuevo
     const nN = (inq.negro_actual || inq.negro || 0) * (1 + pct / 100)
     await Promise.all([
       supabase.from('inquilinos').update({ blanco_actual: bN, negro_actual: nN }).eq('id', inq.id),
       supabase.from('actualizaciones_ipc').insert({
-        inquilino_id: inq.id, periodo: mesNombre(act.proxYM),
+        inquilino_id: inq.id, periodo: periodoLabel,
         ipc: parseFloat(pct.toFixed(2)), blanco_nuevo: bN, negro_nuevo: nN,
         fecha: new Date().toLocaleDateString('es-AR')
       })
