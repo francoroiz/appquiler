@@ -259,6 +259,42 @@ export default function DeptosPage() {
     loadAll(uid)
   }
 
+  // Revierte la última actualización: restaura los montos anteriores y borra el registro del historial
+  async function deshacerUltimaActualizacion(inq: any) {
+    const { data: hist, error: errH } = await supabase
+      .from('actualizaciones_ipc').select('*').eq('inquilino_id', inq.id)
+      .order('created_at', { ascending: false }).limit(1)
+    if (errH || !hist || hist.length === 0) { alert('No hay actualizaciones para deshacer.'); return }
+    const h = hist[0]
+    const factor = 1 + Number(h.ipc) / 100
+    // un registro "Manual" (ipc 0) no cambió montos: solo se borra el registro
+    const estBlanco = Math.round(Number(h.blanco_nuevo) / factor)
+    const estNegro = Math.round(Number(h.negro_nuevo || 0) / factor)
+    if (!confirm(`¿Deshacer la actualización de ${h.periodo} de ${inq.nombre} (${h.ipc === 0 ? 'manual' : '+' + h.ipc + '%'})?`)) return
+    let blanco = estBlanco
+    let negro = estNegro
+    if (Number(h.ipc) !== 0) {
+      const b = prompt(`Monto en BLANCO (sin IVA) a restaurar.\nEstimado: confirmalo o corregilo si no es exacto.`, String(estBlanco))
+      if (b === null) return
+      const bn = parseFloat(b.replace(/\./g, '').replace(',', '.'))
+      if (isNaN(bn) || bn < 0) { alert('Monto inválido'); return }
+      blanco = bn
+      if (estNegro > 0) {
+        const n = prompt(`Monto en NEGRO a restaurar.\nEstimado: confirmalo o corregilo si no es exacto.`, String(estNegro))
+        if (n === null) return
+        const nn = parseFloat(n.replace(/\./g, '').replace(',', '.'))
+        if (isNaN(nn) || nn < 0) { alert('Monto inválido'); return }
+        negro = nn
+      }
+      const { error: errU } = await supabase.from('inquilinos').update({ blanco_actual: blanco, negro_actual: negro }).eq('id', inq.id)
+      if (errU) { alert('Error al restaurar: ' + errU.message); return }
+    }
+    const { error: errD } = await supabase.from('actualizaciones_ipc').delete().eq('id', h.id)
+    if (errD) { alert('Se restauraron los montos pero no se pudo borrar el registro: ' + errD.message); loadAll(uid); return }
+    alert(`✓ Actualización deshecha.${Number(h.ipc) !== 0 ? `\nBase en blanco: ${fmt(blanco)}` : ''}`)
+    loadAll(uid)
+  }
+
   // La actualización de este período ya se hizo a mano: se registra como aplicada sin cambiar ningún monto
   async function marcarAplicadaManual(inq: any, act: any) {
     const periodoLabel = mesNombre(act.proxYM)
@@ -292,11 +328,11 @@ export default function DeptosPage() {
       supabase.from('inquilinos').update({ blanco_actual: bN, negro_actual: nN }).eq('id', inq.id),
       supabase.from('actualizaciones_ipc').insert({
         inquilino_id: inq.id, periodo: periodoLabel,
-        ipc: parseFloat(pct.toFixed(2)), blanco_nuevo: bN, negro_nuevo: nN,
+        ipc: parseFloat(pct.toFixed(4)), blanco_nuevo: bN, negro_nuevo: nN,
         fecha: new Date().toLocaleDateString('es-AR')
       })
     ])
-    alert(`✓ Actualización aplicada\nIPC: +${pct.toFixed(2)}%\nNuevo base: ${fmt(bN)}`)
+    alert(`✓ Actualización aplicada\nIPC: +${pct.toFixed(4)}%\nNuevo base: ${fmt(bN)}`)
     loadAll(uid)
   }
 
@@ -553,6 +589,7 @@ export default function DeptosPage() {
               onPagosBlanco={() => abrirPagosBlanco(inq)}
               onAplicar={act => aplicarActualizacion(inq, act)}
               onMarcarManual={act => marcarAplicadaManual(inq, act)}
+              onDeshacer={() => deshacerUltimaActualizacion(inq)}
             />
           ))
         )

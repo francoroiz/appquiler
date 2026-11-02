@@ -134,7 +134,10 @@ export function calcActualizacion(
 
   // Si blanco es 0, operar sobre negro con modalidad previo (acumulado compuesto)
   const base = blancoActual === 0 ? negroActual : blancoActual
-  const modalidadEfectiva: 'esperar' | 'previo' = blancoActual === 0 ? 'previo' : modalidad
+  // Todos los contratos actualizan con el ACUMULADO de los meses del período (con rezago); la modalidad
+  // "esperar un mes" ya no se usa para el cálculo (tomaba un solo mes).
+  void modalidad
+  const modalidadEfectiva = 'previo' as 'esperar' | 'previo'
 
   // Fechas de actualización: inicio + k·período. Última vencida y próxima.
   let k = 1

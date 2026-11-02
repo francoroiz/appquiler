@@ -1,6 +1,6 @@
 'use client'
 import { useState } from 'react'
-import { fmt, calcActualizacion, vencimientoStatus } from '@/lib/ipc'
+import { fmt, calcActualizacion, vencimientoStatus, IPC_REZAGO } from '@/lib/ipc'
 
 interface Props {
   inq: any
@@ -12,12 +12,14 @@ interface Props {
   onAplicar: (act: any) => void
   /** marca el período como ya aplicado a mano, sin cambiar montos */
   onMarcarManual?: (act: any) => void
+  /** revierte la última actualización aplicada (restaura montos y borra el registro) */
+  onDeshacer?: () => void
   modulo: 'locales' | 'deptos'
   nombreSociaA: string
   nombreSociaB: string
 }
 
-export default function InquilinoCard({ inq, ipcExtra, onEditar, onEliminar, onPagos, onPagosBlanco, onAplicar, onMarcarManual, modulo, nombreSociaA, nombreSociaB }: Props) {
+export default function InquilinoCard({ inq, ipcExtra, onEditar, onEliminar, onPagos, onPagosBlanco, onAplicar, onMarcarManual, onDeshacer, modulo, nombreSociaA, nombreSociaB }: Props) {
   const [open, setOpen] = useState(false)
 
   const ba = inq.blanco_actual || inq.blanco
@@ -136,7 +138,7 @@ export default function InquilinoCard({ inq, ipcExtra, onEditar, onEliminar, onP
             {inq.anos && <span>⏳ {inq.anos} año{inq.anos > 1 ? 's' : ''}</span>}
             {modulo === 'locales' && inq.rubro && <span>🏷 {inq.rubro}</span>}
             {modulo === 'deptos' && inq.piso && <span>🚪 {inq.piso}</span>}
-            <span>📋 {inq.modalidad_ipc === 'previo' ? 'Meses anteriores' : 'Esperar mes'}</span>
+            <span>📋 IPC acumulado de {inq.periodo} meses (rezago {IPC_REZAGO})</span>
           </div>
 
           {soloUnaSociaBlanco && (
@@ -299,6 +301,9 @@ export default function InquilinoCard({ inq, ipcExtra, onEditar, onEliminar, onP
             >
               💵 Pagos negro{nPagosNegro > 0 ? ` (${nPagosNegro})` : ''}
             </button>
+            {onDeshacer && (inq.actualizaciones_count || 0) > 0 && (
+              <button className="btn-secondary" style={{ fontSize: 12 }} onClick={onDeshacer}>↩ Deshacer última actualización</button>
+            )}
             <button className="btn-danger" style={{ fontSize: 12 }} onClick={onEliminar}>🗑 Eliminar</button>
           </div>
         </div>
