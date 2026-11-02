@@ -3,6 +3,73 @@ import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { calcVencimiento, vencimientoStatus } from '@/lib/ipc'
 
+function UruguayCard({ inq, fxRate, fmtUSD, fmtUYU, onEditar, onEliminar }: {
+  inq: any; fxRate: number | null; fmtUSD: (n: number) => string; fmtUYU: (n: number) => string
+  onEditar: () => void; onEliminar: () => void
+}) {
+  const [open, setOpen] = useState(false)
+  const uyu = fxRate ? inq.usd * fxRate : null
+  const vs = vencimientoStatus(inq.vencimiento || '')
+  const enMora = (inq.diasmora || 0) > 0
+
+  return (
+    <div className="card" style={{ marginBottom: 12 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 14, fontWeight: 600 }}>🇺🇾 {inq.nombre}</div>
+          <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>{inq.documento ? inq.documento + ' · ' : ''}{inq.direccion}</div>
+        </div>
+        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', justifyContent: 'flex-end', alignItems: 'center', marginLeft: 8 }}>
+          <span className="badge badge-uy">{inq.tipo}</span>
+          <span className={`badge ${enMora ? 'badge-red' : 'badge-green'}`}>{enMora ? 'En mora' : 'Al día'}</span>
+          <button
+            onClick={() => setOpen(o => !o)}
+            style={{ background: open ? '#f3f4f6' : 'white', border: '1px solid #e5e7eb', borderRadius: 6, padding: '3px 10px', cursor: 'pointer', fontSize: 11, color: '#6b7280', marginLeft: 4, fontWeight: 700, lineHeight: 1.4 }}
+          >{open ? '▲' : '▼'}</button>
+        </div>
+      </div>
+
+      {!open && (
+        <div style={{ display: 'flex', gap: 12, marginTop: 10, fontSize: 12, flexWrap: 'wrap', alignItems: 'center', paddingTop: 8, borderTop: '1px solid #f3f4f6' }}>
+          <span><span style={{ color: '#6b7280' }}>USD: </span><strong style={{ color: '#1a6e2e' }}>{fmtUSD(inq.usd)}</strong></span>
+          {uyu && <span><span style={{ color: '#6b7280' }}>UYU: </span><strong style={{ color: '#1a6e2e' }}>{fmtUYU(uyu)}</strong></span>}
+          {vs && <><span style={{ color: '#e5e7eb' }}>|</span><span style={{ color: '#6b7280' }}>📅 {vs.txt}</span></>}
+          {enMora && <><span style={{ color: '#e5e7eb' }}>|</span><span style={{ color: '#dc2626', fontWeight: 600 }}>⚠️ En mora</span></>}
+        </div>
+      )}
+
+      {open && (
+        <div style={{ marginTop: 12 }}>
+          <div style={{ display: 'flex', gap: 12, fontSize: 11, color: '#6b7280', marginBottom: 8, flexWrap: 'wrap' }}>
+            <span>📅 Inicio: {inq.inicio}</span>
+            {inq.anos && <span>⏳ {inq.anos} año{inq.anos > 1 ? 's' : ''}</span>}
+            {inq.vencimiento && <span>📋 Vence: {inq.vencimiento}</span>}
+            <span>💱 {fxRate ? `1 USD = ${fxRate.toFixed(2)} UYU` : 'Sin cotización'}</span>
+          </div>
+          {vs && <div className={`alert-${vs.cls}`} style={{ marginBottom: 8, fontSize: 12 }}>📅 {vs.txt}</div>}
+          {enMora && <div className="alert-mora">⚠️ {inq.diasmora} día{inq.diasmora > 1 ? 's' : ''} en mora</div>}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 12 }}>
+            <div className="monto-box">
+              <div className="lbl" style={{ color: '#1a6e2e' }}>Monto fijo (USD)</div>
+              <div className="val" style={{ color: '#1a6e2e' }}>{fmtUSD(inq.usd)}</div>
+              <div className="sub">Monto base del contrato</div>
+            </div>
+            <div className="monto-box">
+              <div className="lbl" style={{ color: '#1a6e2e' }}>Equivalente (UYU)</div>
+              {uyu ? <div className="val" style={{ color: '#1a6e2e' }}>{fmtUYU(uyu)}</div> : <div style={{ fontSize: 12, color: '#9ca3af', marginTop: 4 }}>Sin cotización</div>}
+              {uyu && <div className="sub">Cotización del día</div>}
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: 8, borderTop: '1px solid #f3f4f6', paddingTop: 10 }}>
+            <button className="btn-secondary" style={{ fontSize: 12, padding: '5px 12px' }} onClick={onEditar}>✏️ Editar</button>
+            <button className="btn-danger" style={{ fontSize: 12 }} onClick={onEliminar}>🗑 Eliminar</button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 const EMPTY = { nombre: '', documento: '', direccion: '', tipo: 'Apartamento', inicio: '', anos: '', vencimiento: '', usd: '', diasmora: '0' }
 
 export default function UruguayPage() {
@@ -162,47 +229,17 @@ export default function UruguayPage() {
             <button className="btn-primary" style={{ marginTop: 12 }} onClick={() => setShowForm(true)}>+ Agregar primera</button>
           </div>
         ) : (
-          inquilinos.map(inq => {
-            const uyu = fxRate ? inq.usd * fxRate : null
-            const vs = vencimientoStatus(inq.vencimiento || '')
-            return (
-              <div key={inq.id} className="card" style={{ marginBottom: 12 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
-                  <div>
-                    <div style={{ fontSize: 14, fontWeight: 600 }}>🇺🇾 {inq.nombre}</div>
-                    <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>{inq.documento ? inq.documento + ' · ' : ''}{inq.direccion}</div>
-                  </div>
-                  <div style={{ display: 'flex', gap: 4 }}>
-                    <span className="badge badge-uy">{inq.tipo}</span>
-                    <span className={`badge ${(inq.diasmora || 0) > 0 ? 'badge-red' : 'badge-green'}`}>{(inq.diasmora || 0) > 0 ? 'En mora' : 'Al día'}</span>
-                  </div>
-                </div>
-                <div style={{ display: 'flex', gap: 12, fontSize: 11, color: '#6b7280', marginBottom: 8 }}>
-                  <span>📅 {inq.inicio}</span>
-                  {inq.anos && <span>⏳ {inq.anos} año{inq.anos > 1 ? 's' : ''}</span>}
-                  <span>💱 {fxRate ? `1 USD = ${fxRate.toFixed(2)} UYU` : 'Sin cotización'}</span>
-                </div>
-                {vs && <div className={`alert-${vs.cls}`} style={{ marginBottom: 8, fontSize: 12 }}>📅 {vs.txt}</div>}
-                {(inq.diasmora || 0) > 0 && <div className="alert-mora">⚠️ {inq.diasmora} día{inq.diasmora > 1 ? 's' : ''} en mora</div>}
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 12 }}>
-                  <div className="monto-box">
-                    <div className="lbl" style={{ color: '#1a6e2e' }}>Monto fijo (USD)</div>
-                    <div className="val" style={{ color: '#1a6e2e' }}>{fmtUSD(inq.usd)}</div>
-                    <div className="sub">Monto base del contrato</div>
-                  </div>
-                  <div className="monto-box">
-                    <div className="lbl" style={{ color: '#1a6e2e' }}>Equivalente (UYU)</div>
-                    {uyu ? <div className="val" style={{ color: '#1a6e2e' }}>{fmtUYU(uyu)}</div> : <div style={{ fontSize: 12, color: '#9ca3af', marginTop: 4 }}>Sin cotización</div>}
-                    {uyu && <div className="sub">Cotización del día</div>}
-                  </div>
-                </div>
-                <div style={{ display: 'flex', gap: 8, borderTop: '1px solid #f3f4f6', paddingTop: 10 }}>
-                  <button className="btn-secondary" style={{ fontSize: 12, padding: '5px 12px' }} onClick={() => editar(inq)}>✏️ Editar</button>
-                  <button className="btn-danger" style={{ fontSize: 12 }} onClick={() => eliminar(inq.id)}>🗑 Eliminar</button>
-                </div>
-              </div>
-            )
-          })
+          inquilinos.map(inq => (
+            <UruguayCard
+              key={inq.id}
+              inq={inq}
+              fxRate={fxRate}
+              fmtUSD={fmtUSD}
+              fmtUYU={fmtUYU}
+              onEditar={() => editar(inq)}
+              onEliminar={() => eliminar(inq.id)}
+            />
+          ))
         )
       )}
     </div>

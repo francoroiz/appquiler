@@ -67,3 +67,35 @@ body {
 .kpi-value { font-size: 22px; font-weight: 700; }
 .kpi-sub { font-size: 11px; color: #9ca3af; margin-top: 3px; }
 .kpi-delta { font-size: 12px; font-weight: 500; margin-top: 4px; }
+
+/* Responsive grid utilities */
+.g2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.g3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.g4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+
+/* Mobile nav elements */
+.mobile-topbar { display: none; position: sticky; top: 0; z-index: 40; height: 52px; padding: 0 1rem; background: white; border-bottom: 1px solid #e5e7eb; align-items: center; justify-content: space-between; }
+.hamburger { background: none; border: none; cursor: pointer; padding: 6px; border-radius: 8px; display: flex; flex-direction: column; gap: 5px; }
+.hamburger span { display: block; width: 22px; height: 2px; background: #374151; border-radius: 2px; }
+.drawer-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.4); z-index: 45; }
+.drawer-overlay.open { display: block; }
+.mobile-drawer { position: fixed; left: 0; top: 0; bottom: 0; width: 260px; background: white; z-index: 50; padding: 1.5rem 1rem; display: flex; flex-direction: column; gap: 4px; overflow-y: auto; box-shadow: 4px 0 20px rgba(0,0,0,0.1); transform: translateX(-100%); transition: transform 0.25s ease; }
+.mobile-drawer.open { transform: translateX(0); }
+
+@media (max-width: 768px) {
+  .sidebar { display: none !important; }
+  .mobile-topbar { display: flex; }
+  .main-wrap { padding: 1rem !important; max-width: 100vw !important; padding-top: 1rem !important; }
+  .g2 { grid-template-columns: 1fr; gap: 8px; }
+  .g3 { grid-template-columns: 1fr 1fr; gap: 8px; }
+  .g4 { grid-template-columns: 1fr 1fr; gap: 6px; }
+  .page-header { flex-direction: column !important; gap: 8px !important; align-items: flex-start !important; }
+  .modal-box { padding: 1rem !important; }
+  .kpi-value { font-size: 18px; }
+  .stats-selector { grid-template-columns: 1fr 1fr !important; }
+  .stats-selector > button { grid-column: 1 / -1; }
+}
+
+@media (max-width: 460px) {
+  .g3 { grid-template-columns: 1fr; }
+}

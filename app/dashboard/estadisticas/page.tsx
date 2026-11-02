@@ -144,7 +144,7 @@ export default function EstadisticasPage() {
 
       {/* Selector */}
       <div className="card" style={{ marginBottom: 16 }}>
-        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr auto', gap: 12, alignItems: 'flex-end' }}>
+        <div className="stats-selector" style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr auto', gap: 12, alignItems: 'flex-end' }}>
           <div className="form-group">
             <label>Inquilino / simulación libre</label>
             <select value={selIdx} onChange={e => onSelChange(e.target.value)}>
@@ -158,7 +158,7 @@ export default function EstadisticasPage() {
           </div>
           <div className="form-group">
             <label>Monto inicial negro</label>
-            <input type="number" value={montoInicialNegro} onChange={e => setMontoInicialNegro(e.target.value)} placeholder="0 (opcional)" />
+            <MontoInput value={montoInicialNegro} onChange={v => setMontoInicialNegro(v)} placeholder="0 (opcional)" prefix="$" />
           </div>
           <div className="form-group">
             <label>Mes de inicio</label>
@@ -191,10 +191,10 @@ export default function EstadisticasPage() {
             const blancoActVal = blancoActualIva !== null ? blancoActualIva : act.monto
             const blancoIniSim = ini.monto
             return (
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, marginBottom: 16 }}>
+              <div className="g3" style={{ marginBottom: 16 }}>
                 {[
                   { label: 'Total blanco + IVA actual', val: fmt(blancoActVal), sub: `Inicial (IVA inc.): ${fmt(blancoIniSim)}`, delta: `▲ +${act.ipcAcum}% IPC acumulado`, dColor: '#1d4ed8' },
-                  { label: 'Equivalente en USD Blue', val: `U$S ${act.usd.toLocaleString('es-AR')}`, sub: `TC blue: $${dolarFin.toLocaleString('es-AR')} · Inicio U$S ${ini.usd.toLocaleString('es-AR')}`, delta: `${act.usd >= ini.usd ? '▲' : '▼'} ${((act.usd/ini.usd - 1)*100).toFixed(1)}% en USD`, dColor: act.usd >= ini.usd ? '#16a34a' : '#dc2626' },
+                  { label: 'Equivalente en USD Blue', val: `U$S ${act.usd.toLocaleString('es-AR')}`, sub: `Al inicio (${ini.mes}): U$S ${ini.usd.toLocaleString('es-AR')} con TC $${dolarInicio.toLocaleString('es-AR')}`, delta: `${act.usd >= ini.usd ? '▲' : '▼'} ${((act.usd/ini.usd - 1)*100).toFixed(1)}% · TC actual $${dolarFin.toLocaleString('es-AR')}`, dColor: act.usd >= ini.usd ? '#16a34a' : '#dc2626' },
                   { label: 'Kg de asado equiv.', val: `${act.kg} kg`, sub: `Inicio: ${ini.kg} kg`, delta: `${act.kg >= ini.kg ? '▲' : '▼'} ${((act.kg/ini.kg - 1)*100).toFixed(1)}%`, dColor: act.kg >= ini.kg ? '#16a34a' : '#dc2626' },
                   { label: 'Canastas básicas', val: `${act.cb} CB`, sub: `Inicio: ${ini.cb} CB (4 pers.)`, delta: `${act.cb >= ini.cb ? '▲' : '▼'} ${((act.cb/ini.cb - 1)*100).toFixed(1)}%`, dColor: act.cb >= ini.cb ? '#16a34a' : '#dc2626' },
                   { label: 'Inflación IPC acumulada (ARS)', val: `+${act.ipcAcum}%`, sub: `${ini.mes} → ${act.mes}`, delta: 'Inflación Argentina en pesos', dColor: '#374151' },
@@ -214,10 +214,12 @@ export default function EstadisticasPage() {
           {/* Negro KPI + chart si hay negro */}
           {serieNegro.length > 1 && (() => {
             const iniN = serieNegro[0]; const actN = serieNegro[serieNegro.length - 1]
+            const dolarIniN = dolarBlue[iniN.ym] || 1260
+            const dolarActN = dolarBlue[actN.ym] || 1615
             return (
               <div className="card" style={{ marginBottom: 16, borderLeft: '3px solid #dc2626' }}>
                 <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 10, color: '#dc2626' }}>💰 Negro — evolución histórica</div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, marginBottom: 12 }}>
+                <div className="g3" style={{ marginBottom: 12 }}>
                   <div className="kpi-card">
                     <div className="kpi-label">Monto negro inicial</div>
                     <div className="kpi-value" style={{ fontSize: 16, color: '#dc2626' }}>{fmt(iniN.monto)}</div>
@@ -232,7 +234,10 @@ export default function EstadisticasPage() {
                   <div className="kpi-card">
                     <div className="kpi-label">Variación en USD</div>
                     <div className="kpi-value" style={{ fontSize: 16, color: actN.usd >= iniN.usd ? '#16a34a' : '#dc2626' }}>U$S {actN.usd.toLocaleString('es-AR')}</div>
-                    <div className="kpi-sub">Inicio: U$S {iniN.usd.toLocaleString('es-AR')}</div>
+                    <div className="kpi-sub">Al inicio ({iniN.mes}): U$S {iniN.usd.toLocaleString('es-AR')} con TC ${dolarIniN.toLocaleString('es-AR')}</div>
+                    <div className="kpi-delta" style={{ color: actN.usd >= iniN.usd ? '#16a34a' : '#dc2626' }}>
+                      {actN.usd >= iniN.usd ? '▲' : '▼'} {((actN.usd / iniN.usd - 1) * 100).toFixed(1)}% · TC actual ${dolarActN.toLocaleString('es-AR')}
+                    </div>
                   </div>
                 </div>
                 <ResponsiveContainer width="100%" height={160}>
