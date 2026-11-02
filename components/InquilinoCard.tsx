@@ -253,7 +253,10 @@ export default function InquilinoCard({ inq, ipcExtra, onEditar, onEliminar, onP
             <div className="monto-box">
               <div className="lbl" style={{ color: '#16a34a' }}>{nombreSociaA} (blanco)</div>
               {cbA ? (
-                <div className="val" style={{ color: '#16a34a' }}>{cbB ? fmt(bt / 2) : fmt(bt)}</div>
+                <>
+                  <div className="val" style={{ color: '#16a34a' }}>{cbB ? fmt(bt / 2) : fmt(bt)}</div>
+                  {inq.tiene_iva && <div className="sub">Sin IVA: {fmt(cbB ? ba / 2 : ba)}</div>}
+                </>
               ) : (
                 <div style={{ fontSize: 12, color: '#9ca3af', marginTop: 4 }}>No cobra</div>
               )}
@@ -261,7 +264,10 @@ export default function InquilinoCard({ inq, ipcExtra, onEditar, onEliminar, onP
             <div className="monto-box">
               <div className="lbl" style={{ color: '#16a34a' }}>{nombreSociaB} (blanco)</div>
               {cbB ? (
-                <div className="val" style={{ color: '#16a34a' }}>{cbA ? fmt(bt / 2) : fmt(bt)}</div>
+                <>
+                  <div className="val" style={{ color: '#16a34a' }}>{cbA ? fmt(bt / 2) : fmt(bt)}</div>
+                  {inq.tiene_iva && <div className="sub">Sin IVA: {fmt(cbA ? ba / 2 : ba)}</div>}
+                </>
               ) : (
                 <div style={{ fontSize: 12, color: '#9ca3af', marginTop: 4 }}>No cobra</div>
               )}
